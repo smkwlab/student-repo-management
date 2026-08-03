@@ -116,8 +116,7 @@ INDIVIDUAL_MODE=true bash <(curl -fsSL https://repo-setup.smkwlab.net) latex
 
 - **[setup-branch-protection.sh](scripts/setup-branch-protection.sh)**: mainブランチ保護設定（教員用）
   - main ブランチの誤操作防止
-  - GitHub Actions自動マージ許可
-  - final-*タグ時の自動マージ対応
+  - GitHub Actions によるレビュー要件のバイパスを許可
 
 ### `create-repo/` - リポジトリ作成ツール
 
