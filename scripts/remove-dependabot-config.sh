@@ -166,5 +166,8 @@ if [ "$errors" -gt 0 ]; then
     printf '%s' "$error_repos" | while IFS= read -r r; do
         [ -n "$r" ] && log "  - ${r}"
     done
+    # 全リポジトリを試したうえで、1 件でも失敗があれば非ゼロで終わる。
+    # 「途中で止めない」ことと「失敗を成功として返さない」ことは両立する。
+    # 上の一覧を見て、残ったものだけ再実行すればよい
     exit 1
 fi
