@@ -130,43 +130,6 @@ verify_admin_permissions() {
     fi
 }
 
-# enforce_admins 設定
-# GitHub API では enforce_admins は別エンドポイントで設定する必要がある
-# 参照: https://docs.github.com/en/rest/branches/branch-protection#set-admin-branch-protection
-setup_enforce_admins() {
-    local owner="$1"
-    local repo_name="$2"
-    local enforce="$3"  # true or false
-    local branch="${4:-main}"  # 将来の拡張用（複数ブランチ対応）
-
-    log "enforce_admins 設定: $enforce (branch: $branch)"
-
-    if [ "$enforce" = "true" ]; then
-        # 管理者にも保護ルールを適用
-        if gh api --method POST \
-           "repos/$owner/$repo_name/branches/$branch/protection/enforce_admins" \
-           >/dev/null 2>&1; then
-            success "✅ enforce_admins: true を設定しました"
-            return 0
-        else
-            warn "⚠️  enforce_admins: true の設定に失敗しました"
-            return 1
-        fi
-    else
-        # 管理者は保護ルールを回避可能（学生リポジトリ向け）
-        if gh api --method DELETE \
-           "repos/$owner/$repo_name/branches/$branch/protection/enforce_admins" \
-           >/dev/null 2>&1; then
-            success "✅ enforce_admins: false を設定しました（管理者は保護ルールを回避可能）"
-            return 0
-        else
-            # DELETE が失敗しても、既に false の場合があるため警告のみ
-            log "enforce_admins: false の設定をスキップ（既に設定済みの可能性）"
-            return 0
-        fi
-    fi
-}
-
 # 学生リストの更新（pending → completed）
 update_student_lists() {
     local repo_name="$1"
@@ -262,6 +225,11 @@ setup_protection() {
     fi
 
     # 各ブランチへの保護設定
+    #
+    # bypass_pull_request_allowances は空配列で明示的に送る。フィールドを省くと
+    # 既存の設定が残るため、消したい場合は空で上書きするしかない。学生リポジトリ
+    # の main をレビューなしでマージできる主体は作らない、という状態へ毎回収束
+    # させる意図なので、簡略化して省かないこと。
     local protection_config='{
         "required_status_checks": {
             "strict": false,
@@ -278,10 +246,10 @@ setup_protection() {
             "bypass_pull_request_allowances": {
                 "users": [],
                 "teams": [],
-                "apps": ["github-actions"]
+                "apps": []
             }
         },
-        "enforce_admins": true,
+        "enforce_admins": false,
         "restrictions": null,
         "allow_force_pushes": false,
         "allow_deletions": false
@@ -336,13 +304,7 @@ setup_protection() {
         success "     - Requires 1 approving review before merge"
         success "     - Dismisses stale reviews when new commits are pushed"
         success "     - Prevents force pushes and branch deletion"
-
-        # enforce_admins を false に設定（学生リポジトリでは管理者が直接操作できるようにする）
-        # 注: テンプレートリポジトリでは true を設定すべきだが、このスクリプトは学生リポジトリ用
-        if ! setup_enforce_admins "$owner" "$repo_name" "false"; then
-            error "❌ enforce_admins 設定に失敗しました"
-            return 1
-        fi
+        success "     - Lets administrators bypass protection (enforce_admins: false)"
 
         # 学生リストの更新（pending → completed）
         # 学生レジストリ（thesis-student-registry）は REGISTRY_OWNER 配下の学生
