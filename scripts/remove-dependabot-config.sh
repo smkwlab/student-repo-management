@@ -87,8 +87,15 @@ repos=$(gh repo list "$ORG" --limit "$REPO_LIST_LIMIT" --json name,isArchived \
     --jq ".[] | select(.name | test(\"${REPO_PATTERN}\")) | \"\(.name)\t\(.isArchived)\"" \
     | sort)
 
-total=$(printf '%s\n' "$repos" | grep -c . || true)
+total=$(printf '%s\n' "$repos" | awk 'NF {n++} END {print n+0}')
 log "学生リポジトリ: ${total} 件を走査"
+
+# 0 件は「学生リポジトリが無い」より「パターンか取得上限が壊れている」可能性の
+# 方が高い。黙って何もせず正常終了すると、削除できたと誤解されるので止める
+if [ "$total" -eq 0 ]; then
+    log "走査対象が 0 件。REPO_PATTERN と REPO_LIST_LIMIT を確認すること"
+    exit 1
+fi
 
 while IFS=$'\t' read -r name archived; do
     [ -z "$name" ] && continue
@@ -104,6 +111,10 @@ while IFS=$'\t' read -r name archived; do
         continue
     fi
 
+    # archived の判定を sha 取得の後に置いているのは意図的。archived を先に
+    # 弾けば API 呼び出しを節約できるが、それでは「archived な学生リポジトリ
+    # の総数」を数えることになる。知りたいのは「archived かつファイルが残って
+    # いる数」なので、ファイルの有無を確かめてから数える
     if [ "$archived" = "true" ]; then
         skipped_archived=$((skipped_archived + 1))
         log "  skip (archived): ${name}"
@@ -116,7 +127,16 @@ while IFS=$'\t' read -r name archived; do
         continue
     fi
 
-    branch=$(gh api "repos/${ORG}/${name}" --jq '.default_branch')
+    # 取得に失敗しても走査を止めない。set -e の下では branch=$(...) の失敗が
+    # スクリプト全体を落とし、途中まで進んだ結果が読めなくなる
+    if ! branch=$(gh api "repos/${ORG}/${name}" --jq '.default_branch' 2>/dev/null) \
+        || [ -z "$branch" ] || [ "$branch" = "null" ]; then
+        errors=$((errors + 1))
+        error_repos="${error_repos}${name}"$'\n'
+        log "  ERROR: ${name} — default_branch を取得できなかった"
+        continue
+    fi
+
     if gh api -X DELETE "repos/${ORG}/${name}/contents/${TARGET_PATH}" \
         -f "message=${COMMIT_MESSAGE}" \
         -f "sha=${sha}" \
@@ -125,7 +145,7 @@ while IFS=$'\t' read -r name archived; do
         log "  removed: ${name} (${branch})"
     else
         errors=$((errors + 1))
-        error_repos="${error_repos}${name} "
+        error_repos="${error_repos}${name}"$'\n'
         log "  ERROR: ${name} — 削除できなかった（権限・保護設定を確認）"
     fi
 done <<EOF
@@ -140,6 +160,11 @@ else
 fi
 log "スキップ (archived): ${skipped_archived} 件"
 if [ "$errors" -gt 0 ]; then
-    log "エラー: ${errors} 件 — ${error_repos}"
+    log "エラー: ${errors} 件"
+    # 1 行 1 リポジトリで出す。再実行しても contents API の DELETE は
+    # 冪等なので、削除済みのものは 404 になるだけで害はない
+    printf '%s' "$error_repos" | while IFS= read -r r; do
+        [ -n "$r" ] && log "  - ${r}"
+    done
     exit 1
 fi
