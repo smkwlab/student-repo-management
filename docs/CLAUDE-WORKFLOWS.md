@@ -21,7 +21,7 @@ Phase 2: Abstract Writing
 abstract-1st → abstract-2nd → abstract completion
 
 Phase 3: Final Submission
-Further improvements → Final PR → Faculty approval → final-* tag → Auto-merge
+Further improvements → final-* tag → submission PR opened automatically → faculty merges
 ```
 
 ## Faculty Workflow
