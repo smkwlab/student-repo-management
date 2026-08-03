@@ -1,4 +1,4 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>smkwlab/.github:latex#v1.26.0"]
+  "extends": ["github>smkwlab/.github:latex#v1"]
 }
