@@ -225,6 +225,11 @@ setup_protection() {
     fi
 
     # 各ブランチへの保護設定
+    #
+    # bypass_pull_request_allowances は空配列で明示的に送る。フィールドを省くと
+    # 既存の設定が残るため、消したい場合は空で上書きするしかない。学生リポジトリ
+    # の main をレビューなしでマージできる主体は作らない、という状態へ毎回収束
+    # させる意図なので、簡略化して省かないこと。
     local protection_config='{
         "required_status_checks": {
             "strict": false,
@@ -237,6 +242,11 @@ setup_protection() {
             "dismissal_restrictions": {
                 "users": [],
                 "teams": []
+            },
+            "bypass_pull_request_allowances": {
+                "users": [],
+                "teams": [],
+                "apps": []
             }
         },
         "enforce_admins": false,
