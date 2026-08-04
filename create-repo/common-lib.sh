@@ -711,10 +711,20 @@ cleanup_template_files() {
     rm -f CLAUDE.md 2>/dev/null || true
     rm -rf docs/ 2>/dev/null || true
     find . -name '*-aldc' -exec rm -rf {} + 2>/dev/null || true
-    # 学生リポジトリでは Actions の自動更新は不要（最新化はテンプレート側の dependabot
-    # で管理）。誤マージ防止 CI（prevent-draft-merge）や review 必須保護と dependabot PR
-    # が干渉して溜まるため、生成時に削除する（#514）。
+    # 学生リポジトリでは依存の自動更新は不要（最新化はテンプレート側で管理）。誤マージ
+    # 防止 CI（prevent-draft-merge）や review 必須保護と bot の PR が干渉して溜まるため、
+    # 生成時に削除する（#514）。
+    #
+    # renovate.json も同じ理由で消す。こちらは aldc が latex-environment の release
+    # ブランチから持ち込む。Renovate App が学生リポジトリに入っていないので現状は何も
+    # 起きないが、それは App のインストール範囲というコード管理外の設定に安全性を
+    # 預けている状態であり、範囲が広がれば全学生リポジトリで動き出す。
+    #
+    # 配置場所はエコシステムが実際に配る 2 つに限る。Renovate はほかにも
+    # .renovaterc / package.json の renovate フィールドなどを読むが、それらを
+    # 学生リポジトリへ持ち込む経路は無い。増やすなら、まず配る側を見直すこと。
     rm -f .github/dependabot.yml 2>/dev/null || true
+    rm -f .github/renovate.json renovate.json 2>/dev/null || true
     # GitHub は README を .github/ → root → docs/ の順に探して最初の 1 つを表示する。
     # テンプレート側はこの性質を使い、テンプレートの使い方を .github/README.md に、
     # 学生が記入する著者情報を root の README.md に置いている。ここで前者を削除する
