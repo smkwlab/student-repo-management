@@ -725,6 +725,15 @@ cleanup_template_files() {
     # 学生リポジトリへ持ち込む経路は無い。増やすなら、まず配る側を見直すこと。
     rm -f .github/dependabot.yml 2>/dev/null || true
     rm -f .github/renovate.json renovate.json 2>/dev/null || true
+    # security.yml（trufflehog の secret scan）はテンプレート自身を守るために
+    # 置いたもので、学生リポジトリへ配る判断はしていない。テンプレートは private
+    # で GitHub 純正の secret scanning が使えないため caller が唯一の手段だが、
+    # 生成物まで対象にすると全学生リポジトリで push ごとに走り、学生が読めない
+    # 失敗が PR に出る。LaTeX 文書に secret が入る確率は低く、割に合わない。
+    #
+    # 配ると決めたなら、ここを消すだけでは既存のリポジトリに届かない。
+    # 既存分はブランチ階層をマージで伝播させる必要がある（/propagate）。
+    rm -f .github/workflows/security.yml 2>/dev/null || true
     # GitHub は README を .github/ → root → docs/ の順に探して最初の 1 つを表示する。
     # テンプレート側はこの性質を使い、テンプレートの使い方を .github/README.md に、
     # 学生が記入する著者情報を root の README.md に置いている。ここで前者を削除する
