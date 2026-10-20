@@ -81,7 +81,7 @@ esac
 #   UNIVERSAL_BRANCH=...   後方互換のためのエイリアス（UNIVERSAL_REF を優先）。従来
 #                          どおり、解決できない場合は警告して main へフォールバックする。
 # 優先順位: UNIVERSAL_REF > UNIVERSAL_BRANCH > EMBEDDED_REF
-EMBEDDED_REF="main"
+EMBEDDED_REF="v1.7.0"
 if [ -n "$UNIVERSAL_REF" ]; then
     SETUP_REF="$UNIVERSAL_REF"
     SETUP_REF_LENIENT=0
