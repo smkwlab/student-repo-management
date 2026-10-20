@@ -413,18 +413,33 @@ fi
 # 成功も確かめている。空ファイルで「判定不能」に落ちる経路は無い。
 echo "🔎 トークンのスコープを確認中..."
 
-# ヘッダ名だけを取り除いて残り全体を値として扱う。$2 を取ると、値に ": " が
-# 現れた場合に切れる。スコープ名に ": " は現れないが、ここで切れると
-# 「workflow が無い」と誤判定して正当な利用者を止めるため、形に頼らない。
-TOKEN_SCOPES=$(curl -fsSI -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
-    https://api.github.com/ 2>/dev/null \
-    | tr -d '\r' \
-    | awk 'tolower($0) ~ /^x-oauth-scopes:/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
+# curl の成否とヘッダの有無を分けて持つ。結果の文字列だけを見ると、通信断や
+# API の一時障害も「スコープの概念を持たないトークン」と同じ空文字列に見え、
+# fine-grained PAT だと誤って案内することになる。確認できなかった理由が違えば
+# 伝えることも違う。どちらも停止はしない（この時点までに GitHub へは何度も
+# 到達できており、ここだけの一時障害でセットアップを止める理由はない）。
+if SCOPE_HEADERS=$(curl -fsS -I -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
+        https://api.github.com/ 2>/dev/null); then
+    # ヘッダ名だけを取り除いて残り全体を値として扱う。$2 を取ると、値に ": " が
+    # 現れた場合に切れる。スコープ名に ": " は現れないが、ここで切れると
+    # 「workflow が無い」と誤判定して正当な利用者を止めるため、形に頼らない。
+    TOKEN_SCOPES=$(printf '%s' "$SCOPE_HEADERS" | tr -d '\r' \
+        | awk 'tolower($0) ~ /^x-oauth-scopes:/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
+    SCOPE_LOOKUP="ok"
+else
+    TOKEN_SCOPES=""
+    SCOPE_LOOKUP="unreachable"
+fi
 
-if [ -z "$TOKEN_SCOPES" ]; then
+if [ "$SCOPE_LOOKUP" = "unreachable" ]; then
+    echo "⚠️ GitHub API からスコープを取得できませんでした（通信エラーまたは API エラー）"
+    echo "   セットアップは続行します（権限が足りない場合は push の段階で失敗します）"
+elif [ -z "$TOKEN_SCOPES" ]; then
     echo "⚠️ スコープを判定できませんでした（fine-grained PAT などの可能性があります）"
     echo "   ワークフローファイルの push が拒否される場合は workflow 相当の権限を確認してください"
-elif printf '%s' "$TOKEN_SCOPES" | tr ',' '\n' | tr -d ' ' | grep -qx 'workflow'; then
+# 区切りの空白だけを落とす。[:space:] は直前に作った改行まで消し、全スコープが
+# 1 行に潰れて grep -qx が一致しなくなる。消す対象を空白とタブに限る。
+elif printf '%s' "$TOKEN_SCOPES" | tr ',' '\n' | tr -d ' \t' | grep -qx 'workflow'; then
     echo "✅ workflow スコープを確認しました"
 else
     echo "❌ GitHub トークンに workflow スコープがありません"
