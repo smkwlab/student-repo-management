@@ -407,12 +407,19 @@ fi
 # GitHub App のトークンではこのヘッダが空になる。その場合はスコープという概念が
 # 無く判定できないので、警告だけで続行する。判定できないことを理由に止めると、
 # 必要な権限を持つ利用者を塞ぐことになる。
+#
+# ここに来た時点で TOKEN_FILE は中身のあるファイルである。直前の
+# gh auth token が失敗すれば exit しており、さらにその前段で gh api user の
+# 成功も確かめている。空ファイルで「判定不能」に落ちる経路は無い。
 echo "🔎 トークンのスコープを確認中..."
 
+# ヘッダ名だけを取り除いて残り全体を値として扱う。$2 を取ると、値に ": " が
+# 現れた場合に切れる。スコープ名に ": " は現れないが、ここで切れると
+# 「workflow が無い」と誤判定して正当な利用者を止めるため、形に頼らない。
 TOKEN_SCOPES=$(curl -fsSI -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
     https://api.github.com/ 2>/dev/null \
     | tr -d '\r' \
-    | awk -F': ' 'tolower($1) == "x-oauth-scopes" { print $2 }')
+    | awk 'tolower($0) ~ /^x-oauth-scopes:/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
 
 if [ -z "$TOKEN_SCOPES" ]; then
     echo "⚠️ スコープを判定できませんでした（fine-grained PAT などの可能性があります）"
