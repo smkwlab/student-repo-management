@@ -42,6 +42,12 @@ That only happens where someone can answer: under `ASSUME_YES` or without a TTY
 the check prints the command and exits non-zero instead, because a device-flow
 prompt in CI would hang with nobody to approve it.
 
+It also cannot happen when `GH_TOKEN` or `GITHUB_TOKEN` is set. `gh` authenticates
+with that value, and `gh auth refresh` then refuses, telling you to clear the
+variable first -- while exiting 0, so the refusal cannot be detected from its
+status. The check tests those variables before anything else and says to either
+`unset` them or grant the scope to that token directly.
+
 So the failure above should no longer be reachable. These steps are kept for the
 repositories already left in that state:
 

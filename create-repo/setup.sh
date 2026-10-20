@@ -428,14 +428,25 @@ read_token_scopes() {
     # ヘッダ名だけを取り除いて残り全体を値として扱う。$2 を取ると、値に ": " が
     # 現れた場合に切れる。スコープ名に ": " は現れないが、ここで切れると
     # 「workflow が無い」と誤判定して正当な利用者を止めるため、形に頼らない。
+    # 一致した行があれば ", " で 1 行に繋ぐ。該当ヘッダが複数行で返ることは
+    # まず無いが、複数行のまま返すとメッセージに展開したときに表示が崩れる。
+    # 最初の一致で打ち切る手もあるが、それだと 2 行目以降のスコープを見落として
+    # 「workflow が無い」と誤判定する側に倒れるので、落とさずに繋ぐ。
     printf '%s' "$headers" | tr -d '\r' \
-        | awk 'tolower($0) ~ /^x-oauth-scopes:/ { sub(/^[^:]*:[[:space:]]*/, ""); print }'
+        | awk 'tolower($0) ~ /^x-oauth-scopes:/ {
+                   sub(/^[^:]*:[[:space:]]*/, "")
+                   out = (out == "" ? $0 : out ", " $0)
+               }
+               END { if (out != "") print out }'
 }
 
 # 区切りの空白だけを落として完全一致で探す。[:space:] は直前に作った改行まで
 # 消し、全スコープが 1 行に潰れて一致しなくなる（guard が黙って全部通る）。
+# 大文字小文字も畳む。GitHub は小文字で返すが、仮に変わったとき「持っている
+# のに止められる」側に倒れるため、前提に寄りかからない。
 has_workflow_scope() {
-    printf '%s' "$1" | tr ',' '\n' | tr -d ' \t' | grep -qx 'workflow'
+    printf '%s' "$1" | tr ',' '\n' | tr -d ' \t' \
+        | tr '[:upper:]' '[:lower:]' | grep -qx 'workflow'
 }
 
 echo "🔎 トークンのスコープを確認中..."
@@ -459,6 +470,36 @@ else
     # もう一度実行する」の二段を自力で越えることになり、今回の報告はまさにそこで
     # 止まっていた。
     #
+    # 環境変数でトークンを与えられている場合、gh auth refresh は何もできない。
+    # gh は GH_TOKEN / GITHUB_TOKEN を認証に使い、refresh は「環境変数から値を
+    # 消してから実行せよ」と言って終わる。しかも **終了コードは 0** なので、
+    # 失敗としては捕まえられない。
+    #
+    # この判定を非対話の判定より先に置く。両方に当てはまる場所（CI など）で
+    # 非対話側のメッセージを出すと、そこが案内する gh auth refresh は環境変数の
+    # せいで何もしないまま成功を返す。効かない手順を案内しないほうを選ぶ。
+    #
+    # なお gh auth token は GH_TOKEN が設定されていればその値を返すため、
+    # TOKEN_FILE の中身＝コンテナが使うトークンは常に一致する。確認対象が
+    # ずれる心配は無い（コンテナ側の優先順位は GH_TOKEN > /tmp/gh_token）。
+    if [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; then
+        ENV_TOKEN_VARS="${GH_TOKEN:+GH_TOKEN}"
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            ENV_TOKEN_VARS="${ENV_TOKEN_VARS:+$ENV_TOKEN_VARS, }GITHUB_TOKEN"
+        fi
+        echo "❌ 環境変数でトークンが指定されているため、権限を追加できません"
+        echo "   （設定されている変数: ${ENV_TOKEN_VARS}）"
+        echo ""
+        echo "次のいずれかで対処してください："
+        echo "  - 環境変数を解除して gh の認証情報を使う:"
+        echo "      unset GH_TOKEN GITHUB_TOKEN"
+        echo "      gh auth refresh -h github.com -s workflow"
+        echo "  - その環境変数のトークン自体に workflow 権限を付与する"
+        echo ""
+        echo "対処後、このコマンドをもう一度実行してください。"
+        exit 1
+    fi
+
     # 非対話実行では走らせない。gh auth refresh はブラウザでの承認を待つため、
     # 応答する人が居ない場所（CI・一括作成）では無反応のまま止まる。案内を出して
     # 落ちる方が、止まったまま気付かれないより良い。
