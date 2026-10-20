@@ -395,7 +395,7 @@ fi
 #
 # ここで止めなければ、リポジトリだけが Initial commit の状態で残り、0th-draft・
 # ブランチ保護・レジストリ登録のいずれも行われない。しかも学生に見えるのは上の
-# 英文だけで、何をすればよいか分からない。push まで進ませずここで落とす。
+# 英文だけで、何をすればよいか分からない。push まで進ませずここで対処する。
 #
 # gh auth login の既定スコープは repo・read:org・gist で workflow を含まない。
 # 一方コンテナ側の対話認証（common-lib.sh の perform_interactive_auth）は
@@ -411,48 +411,98 @@ fi
 # ここに来た時点で TOKEN_FILE は中身のあるファイルである。直前の
 # gh auth token が失敗すれば exit しており、さらにその前段で gh api user の
 # 成功も確かめている。空ファイルで「判定不能」に落ちる経路は無い。
-echo "🔎 トークンのスコープを確認中..."
 
-# curl の成否とヘッダの有無を分けて持つ。結果の文字列だけを見ると、通信断や
-# API の一時障害も「スコープの概念を持たないトークン」と同じ空文字列に見え、
-# fine-grained PAT だと誤って案内することになる。確認できなかった理由が違えば
-# 伝えることも違う。どちらも停止はしない（この時点までに GitHub へは何度も
-# 到達できており、ここだけの一時障害でセットアップを止める理由はない）。
-if SCOPE_HEADERS=$(curl -fsS -I -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
-        https://api.github.com/ 2>/dev/null); then
+# TOKEN_FILE のトークンのスコープを標準出力に返す。
+# 返り値: 0 = 取得できた（値は空文字列のこともある）/ 1 = 取得そのものに失敗
+#
+# curl の成否とスコープの値を呼び出し側で分けて扱えるようにしている。結果の
+# 文字列だけを見ると、通信断や API の一時障害も「スコープの概念を持たない
+# トークン」と同じ空文字列に見え、fine-grained PAT だと誤って案内することに
+# なる。確認できなかった理由が違えば伝えることも違う。
+read_token_scopes() {
+    local headers
+    if ! headers=$(curl -fsS -I -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
+            https://api.github.com/ 2>/dev/null); then
+        return 1
+    fi
     # ヘッダ名だけを取り除いて残り全体を値として扱う。$2 を取ると、値に ": " が
     # 現れた場合に切れる。スコープ名に ": " は現れないが、ここで切れると
     # 「workflow が無い」と誤判定して正当な利用者を止めるため、形に頼らない。
-    TOKEN_SCOPES=$(printf '%s' "$SCOPE_HEADERS" | tr -d '\r' \
-        | awk 'tolower($0) ~ /^x-oauth-scopes:/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
-    SCOPE_LOOKUP="ok"
-else
-    TOKEN_SCOPES=""
-    SCOPE_LOOKUP="unreachable"
-fi
+    printf '%s' "$headers" | tr -d '\r' \
+        | awk 'tolower($0) ~ /^x-oauth-scopes:/ { sub(/^[^:]*:[[:space:]]*/, ""); print }'
+}
 
-if [ "$SCOPE_LOOKUP" = "unreachable" ]; then
+# 区切りの空白だけを落として完全一致で探す。[:space:] は直前に作った改行まで
+# 消し、全スコープが 1 行に潰れて一致しなくなる（guard が黙って全部通る）。
+has_workflow_scope() {
+    printf '%s' "$1" | tr ',' '\n' | tr -d ' \t' | grep -qx 'workflow'
+}
+
+echo "🔎 トークンのスコープを確認中..."
+
+if ! TOKEN_SCOPES=$(read_token_scopes); then
     echo "⚠️ GitHub API からスコープを取得できませんでした（通信エラーまたは API エラー）"
     echo "   セットアップは続行します（権限が足りない場合は push の段階で失敗します）"
 elif [ -z "$TOKEN_SCOPES" ]; then
     echo "⚠️ スコープを判定できませんでした（fine-grained PAT などの可能性があります）"
     echo "   ワークフローファイルの push が拒否される場合は workflow 相当の権限を確認してください"
-# 区切りの空白だけを落とす。[:space:] は直前に作った改行まで消し、全スコープが
-# 1 行に潰れて grep -qx が一致しなくなる。消す対象を空白とタブに限る。
-elif printf '%s' "$TOKEN_SCOPES" | tr ',' '\n' | tr -d ' \t' | grep -qx 'workflow'; then
+elif has_workflow_scope "$TOKEN_SCOPES"; then
     echo "✅ workflow スコープを確認しました"
 else
-    echo "❌ GitHub トークンに workflow スコープがありません"
+    echo "⚠️ GitHub トークンに workflow スコープがありません（現在: ${TOKEN_SCOPES}）"
+    echo "   このままでは push が拒否され、中身の無いリポジトリだけが残ります"
     echo ""
-    echo "現在のスコープ: ${TOKEN_SCOPES}"
+
+    # スコープの追加は GitHub 上での承認を伴うため、スクリプトだけでは完結しない。
+    # 承認を促すところまでは自動化できるので、ここで gh auth refresh を実行する。
+    # 別コマンドを案内して終了すると、利用者は「何をすればよいか」と「最初から
+    # もう一度実行する」の二段を自力で越えることになり、今回の報告はまさにそこで
+    # 止まっていた。
+    #
+    # 非対話実行では走らせない。gh auth refresh はブラウザでの承認を待つため、
+    # 応答する人が居ない場所（CI・一括作成）では無反応のまま止まる。案内を出して
+    # 落ちる方が、止まったまま気付かれないより良い。
+    if [[ "${ASSUME_YES:-}" =~ ^(true|TRUE|1|yes|YES)$ ]] || [ ! -t 0 ]; then
+        echo "❌ 非対話実行のため、権限の追加を自動で行えません"
+        echo ""
+        echo "次のコマンドで workflow スコープを追加してください："
+        echo ""
+        echo "  gh auth refresh -h github.com -s workflow"
+        echo ""
+        echo "追加後、このコマンドをもう一度実行してください。"
+        exit 1
+    fi
+
+    echo "🔑 workflow スコープを追加します（ブラウザでの承認が必要です）"
+    echo "   実行: gh auth refresh -h github.com -s workflow"
     echo ""
-    echo "このままではリポジトリ作成の途中で push が拒否され、"
-    echo "中身の無いリポジトリだけが残ります。先に権限を追加してください："
+    # --scopes は既存のスコープを維持したまま追加する（gh auth refresh の仕様）。
+    # 既に持っている権限が減ることはない。
+    if ! gh auth refresh -h github.com -s workflow; then
+        echo ""
+        echo "❌ 権限の追加に失敗しました（承認が中断された可能性があります）"
+        echo "   手動で実行してから、このコマンドをもう一度実行してください："
+        echo "     gh auth refresh -h github.com -s workflow"
+        exit 1
+    fi
+
+    # refresh でトークンが入れ替わる。コンテナへ渡すファイルを作り直さないと、
+    # 権限を足したのに古いトークンで push して拒否される
+    if ! gh auth token > "$TOKEN_FILE" 2>/dev/null; then
+        echo "❌ 更新後のトークンを取得できませんでした"
+        exit 1
+    fi
+
+    # 追加されたことを確かめる。別アカウントで承認した場合など、refresh が
+    # 成功しても目的のスコープが付かないことがある。確認せずに進めると、
+    # この事前確認を入れた意味が無くなる
+    if ! TOKEN_SCOPES=$(read_token_scopes) || ! has_workflow_scope "$TOKEN_SCOPES"; then
+        echo "❌ workflow スコープを確認できませんでした（現在: ${TOKEN_SCOPES:-取得失敗}）"
+        echo "   gh auth status でアカウントとスコープを確認してください"
+        exit 1
+    fi
     echo ""
-    echo "  gh auth refresh -h github.com -s workflow"
-    echo ""
-    echo "追加後、このコマンドをもう一度実行してください。"
-    exit 1
+    echo "✅ workflow スコープを追加しました"
 fi
 
 # GitHub から直接ビルド & 実行

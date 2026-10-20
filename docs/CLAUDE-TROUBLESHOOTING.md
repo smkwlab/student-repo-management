@@ -32,15 +32,24 @@ The default scopes of `gh auth login` are `repo`, `read:org` and `gist` — not
 whether a given person hits this depends on which of the two paths produced the
 token `setup.sh` forwards.
 
+`setup.sh` now checks the scope before it launches the container, and when it is
+missing it runs `gh auth refresh -h github.com -s workflow` itself and carries on
+once the scope is in place. Granting a scope needs the person's approval on
+GitHub, so a browser step remains; what no longer remains is having to find the
+command and start the whole setup over.
+
+That only happens where someone can answer: under `ASSUME_YES` or without a TTY
+the check prints the command and exits non-zero instead, because a device-flow
+prompt in CI would hang with nobody to approve it.
+
+So the failure above should no longer be reachable. These steps are kept for the
+repositories already left in that state:
+
 - Inspect the scopes: `gh auth status` (or the `X-OAuth-Scopes` response header)
 - Add the scope: `gh auth refresh -h github.com -s workflow`
 - Delete the half-created repository before retrying; `setup.sh` has no resume
   mode, so re-running it against an existing repository does not fill in the
   missing pieces
-
-`setup.sh` checks this before launching the container, so the failure above
-should no longer be reachable; it is kept here because existing repositories
-left in that state still need the recovery steps.
 
 ### Multiple Account Issues
 - Check active account: `gh api user --jq .login`
