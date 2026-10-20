@@ -382,6 +382,57 @@ else
     exit 1
 fi
 
+# workflow スコープの事前確認
+#
+# 生成リポジトリには setup 時に .github/workflows/autoassignees.yml を追加する
+# （テンプレートには置かず動的に足す。common-lib.sh の
+# setup_auto_assign_for_organization_members）。GitHub は workflow スコープを
+# 持たない OAuth トークンによる workflows/ 配下の作成・更新を拒否する。push は
+# アトミックなので、ワークフロー 1 個のために main の内容がまるごと入らない:
+#
+#   ! [remote rejected] main -> main (refusing to allow an OAuth App to create
+#     or update workflow .github/workflows/autoassignees.yml without workflow scope)
+#
+# ここで止めなければ、リポジトリだけが Initial commit の状態で残り、0th-draft・
+# ブランチ保護・レジストリ登録のいずれも行われない。しかも学生に見えるのは上の
+# 英文だけで、何をすればよいか分からない。push まで進ませずここで落とす。
+#
+# gh auth login の既定スコープは repo・read:org・gist で workflow を含まない。
+# 一方コンテナ側の対話認証（common-lib.sh の perform_interactive_auth）は
+# workflow を要求する。ホストで gh auth login 済みの利用者はそのトークンが
+# そのまま転送されるため、どちらの経路を通ったかで成否が分かれていた。
+#
+# スコープは API の X-OAuth-Scopes ヘッダで確かめる。gh auth status の出力を
+# 解析するより安定しており、gh 自身も同じヘッダを読んでいる。fine-grained PAT や
+# GitHub App のトークンではこのヘッダが空になる。その場合はスコープという概念が
+# 無く判定できないので、警告だけで続行する。判定できないことを理由に止めると、
+# 必要な権限を持つ利用者を塞ぐことになる。
+echo "🔎 トークンのスコープを確認中..."
+
+TOKEN_SCOPES=$(curl -fsSI -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
+    https://api.github.com/ 2>/dev/null \
+    | tr -d '\r' \
+    | awk -F': ' 'tolower($1) == "x-oauth-scopes" { print $2 }')
+
+if [ -z "$TOKEN_SCOPES" ]; then
+    echo "⚠️ スコープを判定できませんでした（fine-grained PAT などの可能性があります）"
+    echo "   ワークフローファイルの push が拒否される場合は workflow 相当の権限を確認してください"
+elif printf '%s' "$TOKEN_SCOPES" | tr ',' '\n' | tr -d ' ' | grep -qx 'workflow'; then
+    echo "✅ workflow スコープを確認しました"
+else
+    echo "❌ GitHub トークンに workflow スコープがありません"
+    echo ""
+    echo "現在のスコープ: ${TOKEN_SCOPES}"
+    echo ""
+    echo "このままではリポジトリ作成の途中で push が拒否され、"
+    echo "中身の無いリポジトリだけが残ります。先に権限を追加してください："
+    echo ""
+    echo "  gh auth refresh -h github.com -s workflow"
+    echo ""
+    echo "追加後、このコマンドをもう一度実行してください。"
+    exit 1
+fi
+
 # GitHub から直接ビルド & 実行
 echo "🔧 セットアップ開始..."
 

@@ -10,6 +10,38 @@ This document provides troubleshooting information for common issues in student-
 - Re-authenticate if needed: `gh auth login`
 - Refresh expired tokens: `gh auth refresh`
 
+### Missing `workflow` Scope
+
+Symptom — the push at the end of setup is rejected and only an empty repository
+is left behind:
+
+```
+ ! [remote rejected] main -> main (refusing to allow an OAuth App to create or
+   update workflow .github/workflows/autoassignees.yml without workflow scope)
+```
+
+`setup.sh` adds `.github/workflows/autoassignees.yml` for organization members
+(it is deliberately absent from the templates), and GitHub refuses any push that
+creates or updates a file under `.github/workflows/` with a token that lacks the
+`workflow` scope. A push is atomic, so the whole of `main` is rejected along with
+it: the repository keeps only the template's `Initial commit`, and `0th-draft`,
+branch protection and registry registration never happen.
+
+The default scopes of `gh auth login` are `repo`, `read:org` and `gist` — not
+`workflow`. The container's own device-flow login does request `workflow`, so
+whether a given person hits this depends on which of the two paths produced the
+token `setup.sh` forwards.
+
+- Inspect the scopes: `gh auth status` (or the `X-OAuth-Scopes` response header)
+- Add the scope: `gh auth refresh -h github.com -s workflow`
+- Delete the half-created repository before retrying; `setup.sh` has no resume
+  mode, so re-running it against an existing repository does not fill in the
+  missing pieces
+
+`setup.sh` checks this before launching the container, so the failure above
+should no longer be reachable; it is kept here because existing repositories
+left in that state still need the recovery steps.
+
 ### Multiple Account Issues
 - Check active account: `gh api user --jq .login`
 - Switch accounts: `gh auth switch --user target-username`
