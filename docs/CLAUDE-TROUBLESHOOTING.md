@@ -10,6 +10,53 @@ This document provides troubleshooting information for common issues in student-
 - Re-authenticate if needed: `gh auth login`
 - Refresh expired tokens: `gh auth refresh`
 
+### Missing `workflow` Scope
+
+Symptom — the push at the end of setup is rejected and only an empty repository
+is left behind:
+
+```
+ ! [remote rejected] main -> main (refusing to allow an OAuth App to create or
+   update workflow .github/workflows/autoassignees.yml without workflow scope)
+```
+
+`setup.sh` adds `.github/workflows/autoassignees.yml` for organization members
+(it is deliberately absent from the templates), and GitHub refuses any push that
+creates or updates a file under `.github/workflows/` with a token that lacks the
+`workflow` scope. A push is atomic, so the whole of `main` is rejected along with
+it: the repository keeps only the template's `Initial commit`, and `0th-draft`,
+branch protection and registry registration never happen.
+
+The default scopes of `gh auth login` are `repo`, `read:org` and `gist` — not
+`workflow`. The container's own device-flow login does request `workflow`, so
+whether a given person hits this depends on which of the two paths produced the
+token `setup.sh` forwards.
+
+`setup.sh` now checks the scope before it launches the container, and when it is
+missing it runs `gh auth refresh -h github.com -s workflow` itself and carries on
+once the scope is in place. Granting a scope needs the person's approval on
+GitHub, so a browser step remains; what no longer remains is having to find the
+command and start the whole setup over.
+
+That only happens where someone can answer: under `ASSUME_YES` or without a TTY
+the check prints the command and exits non-zero instead, because a device-flow
+prompt in CI would hang with nobody to approve it.
+
+It also cannot happen when `GH_TOKEN` or `GITHUB_TOKEN` is set. `gh` authenticates
+with that value, and `gh auth refresh` then refuses, telling you to clear the
+variable first -- while exiting 0, so the refusal cannot be detected from its
+status. The check tests those variables before anything else and says to either
+`unset` them or grant the scope to that token directly.
+
+So the failure above should no longer be reachable. These steps are kept for the
+repositories already left in that state:
+
+- Inspect the scopes: `gh auth status` (or the `X-OAuth-Scopes` response header)
+- Add the scope: `gh auth refresh -h github.com -s workflow`
+- Delete the half-created repository before retrying; `setup.sh` has no resume
+  mode, so re-running it against an existing repository does not fill in the
+  missing pieces
+
 ### Multiple Account Issues
 - Check active account: `gh api user --jq .login`
 - Switch accounts: `gh auth switch --user target-username`
