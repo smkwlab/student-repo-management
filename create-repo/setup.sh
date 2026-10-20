@@ -536,10 +536,20 @@ else
 
     # 追加されたことを確かめる。別アカウントで承認した場合など、refresh が
     # 成功しても目的のスコープが付かないことがある。確認せずに進めると、
-    # この事前確認を入れた意味が無くなる
-    if ! TOKEN_SCOPES=$(read_token_scopes) || ! has_workflow_scope "$TOKEN_SCOPES"; then
-        echo "❌ workflow スコープを確認できませんでした（現在: ${TOKEN_SCOPES:-取得失敗}）"
-        echo "   gh auth status でアカウントとスコープを確認してください"
+    # この事前確認を入れた意味が無くなる。
+    #
+    # 取得できなかった場合と、取得できたが付いていなかった場合は分けて言う。
+    # 前者は通信の問題で、後者は承認先の問題。混ぜると、どちらを調べればよいか
+    # 分からない（この確認を入れた理由そのものと同じ）。
+    if ! TOKEN_SCOPES=$(read_token_scopes); then
+        echo "❌ 更新後のスコープを取得できませんでした（通信エラーまたは API エラー）"
+        echo "   権限は追加されている可能性があります。もう一度実行してください。"
+        exit 1
+    fi
+    if ! has_workflow_scope "$TOKEN_SCOPES"; then
+        echo "❌ workflow スコープが付与されていません（現在: ${TOKEN_SCOPES:-なし}）"
+        echo "   別のアカウントで承認した可能性があります。"
+        echo "   gh auth status でアカウントとスコープを確認してください。"
         exit 1
     fi
     echo ""
