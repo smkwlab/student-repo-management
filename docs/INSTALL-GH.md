@@ -1,6 +1,7 @@
-# GitHub CLI (gh) のインストール
+# リポジトリ作成の前準備（gh と Windows の WSL）
 
-GitHub CLI は、リポジトリ作成スクリプト (`setup.sh`) の実行に必要なツールです。
+リポジトリ作成スクリプト (`setup.sh`) の実行に必要な GitHub CLI のインストールと、
+Windows で先に済ませておく WSL 側の準備をまとめています。
 
 ## macOS
 
@@ -11,6 +12,47 @@ brew install gh
 ```
 
 ## Windows (WSL)
+
+Windows では、以下の操作をすべて WSL (Ubuntu) の中で実行してください。
+
+### 1. WSL を用意する
+
+WSL が入っていなければ、PowerShell で次を実行します。
+
+```powershell
+wsl --install
+```
+
+**バージョンは指定しないでください**（`-d Ubuntu-24.04` のような書き方をしない）。
+指定しなければ、その時点で最新の Ubuntu LTS が入ります。
+
+すでに WSL を使っている場合はそのままで構いません。ただしサポートが終了した古い Ubuntu
+では証明書の更新が止まっているため、リポジトリ作成スクリプトの取得そのものが次のような
+エラーで失敗します。
+
+```
+curl: (60) SSL certificate problem: unable to get local issuer certificate
+```
+
+この場合は Ubuntu を新しく入れ直すことになりますが、入れ直すと中に入れたものは消えるので、
+自分で進めずに担当教員に相談してください。
+
+### 2. Docker Desktop の WSL 統合を有効にする
+
+Docker Desktop をインストールしただけでは、WSL の中から `docker` を使えません。
+Docker Desktop の Settings → Resources → WSL Integration で、使っている Ubuntu を
+有効にしてください。
+
+有効になっていないと、リポジトリ作成スクリプトが次のメッセージで止まります。
+
+```
+❌ Dockerがインストールされていません
+```
+
+Docker Desktop は入っているので、このメッセージが案内するインストール手順に従っても
+解決しません。確認するのは WSL 統合の設定です。
+
+### 3. gh をインストールする
 
 WSL (Ubuntu/Debian) 内で[公式リポジトリからインストール](https://github.com/cli/cli/blob/trunk/docs/install_linux.md#installing-gh-on-linux-and-bsd)：
 
@@ -25,8 +67,6 @@ WSL (Ubuntu/Debian) 内で[公式リポジトリからインストール](https:
 	&& sudo apt update \
 	&& sudo apt install gh -y
 ```
-
-**注意**: Windows では WSL 内で全ての操作を実行してください。
 
 ## インストール確認
 
