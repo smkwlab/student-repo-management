@@ -45,7 +45,7 @@ wsl --install
 curl: (60) SSL certificate problem: unable to get local issuer certificate
 ```
 
-この場合は Ubuntu を新しく入れ直すことになりますが、入れ直すと中に入れたものは消えるので、
+この場合は新しい Ubuntu に移ることになりますが、手順を誤ると今の環境が失われるので、
 自分で進めずに担当教員に相談してください。
 
 ### 2. Docker Desktop の WSL 統合を有効にする
