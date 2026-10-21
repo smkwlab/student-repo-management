@@ -6,14 +6,12 @@
 
 ## リポジトリ作成に必要なもの
 
-1. **GitHub アカウント** — 持っていなければ [github.com](https://github.com/) で作成する。
-   所属研究室の organization への招待が届いていれば受諾しておく
-2. **Docker Desktop** — LaTeX 環境の実行に必要。
-   [www.docker.com](https://www.docker.com/products/docker-desktop/) から入れる
-3. **GitHub CLI (gh)** — リポジトリ作成スクリプトの実行に必要。インストール手順は OS によって
-   異なるので、以下の該当する節を参照する
+- **GitHub アカウント** — 持っていなければ [github.com](https://github.com/) で作成する。
+  所属研究室の organization への招待が届いていれば受諾しておく
+- **Docker Desktop** — LaTeX 環境の実行に必要
+- **GitHub CLI (gh)** — リポジトリ作成スクリプトの実行に必要
 
-Windows では、Docker Desktop を入れたあとに WSL 側の準備も必要です。
+Docker Desktop と gh の入れ方は OS によって違います。**以下は該当する節だけを読めば足ります。**
 
 ## 作成した後に必要なもの
 
@@ -24,7 +22,13 @@ Windows では、Docker Desktop を入れたあとに WSL 側の準備も必要�
 
 ## macOS での準備
 
-Homebrew を使用して gh をインストールします。
+### 1. Docker Desktop をインストールする
+
+[www.docker.com](https://www.docker.com/products/docker-desktop/) から入れてください。
+
+### 2. gh をインストールする
+
+Homebrew を使用します。
 
 ```bash
 brew install gh
@@ -32,7 +36,7 @@ brew install gh
 
 ## Windows での準備
 
-Windows では、以下の操作をすべて WSL (Ubuntu) の中で実行してください。
+Windows では、gh のインストール以降の操作をすべて WSL (Ubuntu) の中で実行してください。
 
 ### 1. WSL を用意する
 
@@ -63,9 +67,10 @@ curl: (60) SSL certificate problem: unable to get local issuer certificate
 wsl --list --verbose
 ```
 
-### 2. Docker Desktop の WSL 統合を有効にする
+### 2. Docker Desktop を入れ、WSL 統合を有効にする
 
-Docker Desktop をインストールしただけでは、WSL の中から `docker` を使えません。
+Docker Desktop は [www.docker.com](https://www.docker.com/products/docker-desktop/) から
+入れてください。インストールしただけでは、WSL の中から `docker` を使えません。
 Docker Desktop の Settings → Resources → WSL Integration で、使っている Ubuntu を
 有効にして Apply を押してください。同じ手順は[公式ドキュメント](https://docs.docker.com/desktop/features/wsl/)にもあります。
 Docker Desktop の更新でメニュー構成が変わることがあるので、見つからない場合はそちらを見てください。
