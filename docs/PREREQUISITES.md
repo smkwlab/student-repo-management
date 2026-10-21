@@ -65,8 +65,8 @@ wsl --list --verbose
 
 Docker Desktop をインストールしただけでは、WSL の中から `docker` を使えません。
 Docker Desktop の Settings → Resources → WSL Integration で、使っている Ubuntu を
-有効にして Apply を押してください（[公式手順](https://docs.docker.com/desktop/features/wsl/)。
-Docker Desktop の更新でメニュー構成が変わることがあるので、見つからない場合はこちらを見ます）。
+有効にして Apply を押してください。同じ手順は[公式ドキュメント](https://docs.docker.com/desktop/features/wsl/)にもあります。
+Docker Desktop の更新でメニュー構成が変わることがあるので、見つからない場合はそちらを見てください。
 
 有効になっていないと、リポジトリ作成スクリプトが次のメッセージで止まります。
 
