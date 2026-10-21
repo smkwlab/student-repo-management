@@ -22,17 +22,18 @@ Docker Desktop と gh の入れ方は OS によって違います。**以下は�
 
 ## macOS での準備
 
-### 1. Docker Desktop をインストールする
-
-[www.docker.com](https://www.docker.com/products/docker-desktop/) から入れてください。
-
-### 2. gh をインストールする
-
-Homebrew を使用します。
+[Homebrew](https://brew.sh/) で両方入ります。
 
 ```bash
+brew install --cask docker-desktop
 brew install gh
 ```
+
+Homebrew を使わない場合は、Docker Desktop を
+[www.docker.com](https://www.docker.com/products/docker-desktop/) から入れてください。
+
+入れたら **Docker Desktop を起動しておいてください。** 起動していないと、リポジトリ作成
+スクリプトが「❌ Dockerデーモンが起動していません」で止まります。
 
 ## Windows での準備
 
