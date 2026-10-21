@@ -6,13 +6,17 @@
 
 ## 必要なもの
 
-1. **GitHub アカウント** — 所属研究室の organization への招待が届いていれば受諾しておく
-2. **Docker Desktop** — LaTeX 環境の実行に必要
-3. **GitHub Desktop** — リポジトリの管理・同期に必要（リポジトリを作成した後に使う）
-4. **GitHub CLI (gh)** — リポジトリ作成スクリプトの実行に必要
+1. **GitHub アカウント** — 持っていなければ [github.com](https://github.com/) で作成する。
+   所属研究室の organization への招待が届いていれば受諾しておく
+2. **Docker Desktop** — LaTeX 環境の実行に必要。
+   [www.docker.com](https://www.docker.com/products/docker-desktop/) から入れる
+3. **GitHub Desktop** — リポジトリの管理・同期に必要（リポジトリを作成した後に使う）。
+   [desktop.github.com](https://desktop.github.com/) から入れる。操作は
+   [GitHub Desktop 操作ガイド](https://github.com/smkwlab/latex-ecosystem/blob/main/docs/GITHUB-DESKTOP-GUIDE.md) を参照
+4. **GitHub CLI (gh)** — リポジトリ作成スクリプトの実行に必要。インストール手順は OS によって
+   異なるので、以下の該当する節を参照する
 
-gh のインストールは OS によって異なります。Windows では WSL の準備も必要なので、
-以下の該当する節を参照してください。
+Windows では、Docker Desktop を入れたあとに WSL 側の準備も必要です。
 
 ## macOS での準備
 
