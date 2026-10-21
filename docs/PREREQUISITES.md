@@ -95,12 +95,23 @@ gh auth login
 
 ## 動作確認
 
+2 つに分けて確認します。まずインストールできているか。
+
 ```bash
 gh --version
+```
+
+バージョン情報が表示されれば成功です。`command not found` になる場合は OS 別の節に戻って
+ください。Windows では、WSL の中で実行しているかも確認してください（Windows 側に入れた gh
+は WSL から見えません）。
+
+次に認証できているか。
+
+```bash
 gh auth status
 ```
 
-バージョン情報と `Logged in to github.com` が表示されれば、準備は完了です。
+`Logged in to github.com` と表示されれば、準備は完了です。
 
 ## 参考
 
