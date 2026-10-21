@@ -4,19 +4,23 @@
 文書の種類（卒業論文・修士論文、情報科学演習レポート、学会ポスター、週報、卒業論文調査報告、
 汎用 LaTeX）によらず共通です。
 
-## 必要なもの
+## リポジトリ作成に必要なもの
 
 1. **GitHub アカウント** — 持っていなければ [github.com](https://github.com/) で作成する。
    所属研究室の organization への招待が届いていれば受諾しておく
 2. **Docker Desktop** — LaTeX 環境の実行に必要。
    [www.docker.com](https://www.docker.com/products/docker-desktop/) から入れる
-3. **GitHub Desktop** — リポジトリの管理・同期に必要（リポジトリを作成した後に使う）。
-   [desktop.github.com](https://desktop.github.com/) から入れる。操作は
-   [GitHub Desktop 操作ガイド](https://github.com/smkwlab/latex-ecosystem/blob/main/docs/GITHUB-DESKTOP-GUIDE.md) を参照
-4. **GitHub CLI (gh)** — リポジトリ作成スクリプトの実行に必要。インストール手順は OS によって
+3. **GitHub CLI (gh)** — リポジトリ作成スクリプトの実行に必要。インストール手順は OS によって
    異なるので、以下の該当する節を参照する
 
 Windows では、Docker Desktop を入れたあとに WSL 側の準備も必要です。
+
+## 作成した後に必要なもの
+
+**GitHub Desktop** — リポジトリのクローン・同期に使います。リポジトリ作成の時点では不要なので、
+後から入れても構いません。[desktop.github.com](https://desktop.github.com/) から入れ、操作は
+[GitHub Desktop 操作ガイド](https://github.com/smkwlab/latex-ecosystem/blob/main/docs/GITHUB-DESKTOP-GUIDE.md)
+を参照してください。
 
 ## macOS での準備
 
@@ -50,13 +54,19 @@ curl: (60) SSL certificate problem: unable to get local issuer certificate
 ```
 
 この場合は新しい Ubuntu に移ることになりますが、手順を誤ると今の環境が失われるので、
-自分で進めずに担当教員に相談してください。
+自分で進めずに担当教員に相談してください。相談するときは、次の出力を一緒に伝えると話が早く
+なります（PowerShell で実行します）。
+
+```powershell
+wsl --list --verbose
+```
 
 ### 2. Docker Desktop の WSL 統合を有効にする
 
 Docker Desktop をインストールしただけでは、WSL の中から `docker` を使えません。
 Docker Desktop の Settings → Resources → WSL Integration で、使っている Ubuntu を
-有効にしてください。
+有効にして Apply を押してください（[公式手順](https://docs.docker.com/desktop/features/wsl/)。
+Docker Desktop の更新でメニュー構成が変わることがあるので、見つからない場合はこちらを見ます）。
 
 有効になっていないと、リポジトリ作成スクリプトが次のメッセージで止まります。
 
