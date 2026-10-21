@@ -1,17 +1,28 @@
-# リポジトリ作成の前準備（gh と Windows の WSL）
+# リポジトリ作成の前提条件
 
-リポジトリ作成スクリプト (`setup.sh`) の実行に必要な GitHub CLI のインストールと、
-Windows で先に済ませておく WSL 側の準備をまとめています。
+リポジトリ作成スクリプト (`setup.sh`) を実行する前に用意しておくものをまとめています。
+文書の種類（卒業論文・修士論文、情報科学演習レポート、学会ポスター、週報、卒業論文調査報告、
+汎用 LaTeX）によらず共通です。
 
-## macOS
+## 必要なもの
 
-Homebrew を使用してインストール：
+1. **GitHub アカウント** — 所属研究室の organization への招待が届いていれば受諾しておく
+2. **Docker Desktop** — LaTeX 環境の実行に必要
+3. **GitHub Desktop** — リポジトリの管理・同期に必要（リポジトリを作成した後に使う）
+4. **GitHub CLI (gh)** — リポジトリ作成スクリプトの実行に必要
+
+gh のインストールは OS によって異なります。Windows では WSL の準備も必要なので、
+以下の該当する節を参照してください。
+
+## macOS での準備
+
+Homebrew を使用して gh をインストールします。
 
 ```bash
 brew install gh
 ```
 
-## Windows (WSL)
+## Windows での準備
 
 Windows では、以下の操作をすべて WSL (Ubuntu) の中で実行してください。
 
@@ -54,7 +65,7 @@ Docker Desktop は入っているので、このメッセージが案内する�
 
 ### 3. gh をインストールする
 
-WSL (Ubuntu/Debian) 内で[公式リポジトリからインストール](https://github.com/cli/cli/blob/trunk/docs/install_linux.md#installing-gh-on-linux-and-bsd)：
+WSL (Ubuntu/Debian) 内で[公式リポジトリからインストール](https://github.com/cli/cli/blob/trunk/docs/install_linux.md#installing-gh-on-linux-and-bsd)します。
 
 ```bash
 (type -p wget >/dev/null || (sudo apt update && sudo apt install wget -y)) \
@@ -68,21 +79,13 @@ WSL (Ubuntu/Debian) 内で[公式リポジトリからインストール](https:
 	&& sudo apt install gh -y
 ```
 
-## インストール確認
+## gh の認証
 
-```bash
-gh --version
-```
-
-バージョン情報が表示されればインストール成功です。
-
-## 認証
+OS を問わず、インストール後に認証を済ませておきます。
 
 ```bash
 gh auth login
 ```
-
-### 認証手順
 
 1. `GitHub.com` を選択
 2. `HTTPS` を選択
@@ -90,13 +93,14 @@ gh auth login
 4. 表示されたワンタイムコードをコピー
 5. ブラウザが自動で開くので、コードを入力して認証完了
 
-### 認証確認
+## 動作確認
 
 ```bash
+gh --version
 gh auth status
 ```
 
-`Logged in to github.com` と表示されれば認証成功です。
+バージョン情報と `Logged in to github.com` が表示されれば、準備は完了です。
 
 ## 参考
 

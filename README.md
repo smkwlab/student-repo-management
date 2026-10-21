@@ -21,10 +21,8 @@ GitHub を使った効率的な論文指導をサポートします。
 
 **PR添削ワークフロー付き論文執筆環境の作成**
 
-**前提条件:**
-- Windows: WSL + Docker Desktop
-- macOS: Docker Desktop
-- GitHub CLI（推奨、認証を大幅に簡素化）
+**前提条件:** [docs/PREREQUISITES.md](docs/PREREQUISITES.md)
+（Windows は WSL の用意と Docker Desktop の WSL 統合が必要）
 
 #### 卒業論文・修士論文用
 ```bash

@@ -30,9 +30,8 @@ STUDENT_ID=k21rs001 bash <(curl -fsSL https://repo-setup.smkwlab.net) ise
 STUDENT_ID=k21rs001 bash <(curl -fsSL https://repo-setup.smkwlab.net) wr
 ```
 
-**前提条件:**
-- Windows: WSL + Docker Desktop
-- macOS: Docker Desktop
+**前提条件:** [docs/PREREQUISITES.md](../docs/PREREQUISITES.md)
+（Windows は WSL の用意と Docker Desktop の WSL 統合が必要）
 
 ## 再現性・安全性（固定版の利用）
 
