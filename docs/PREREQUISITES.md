@@ -49,8 +49,9 @@ WSL の Ubuntu が古く、サポートが終了している可能性があり�
 
 この場合は新しい Ubuntu に移ることになりますが、手順を誤ると今の環境が失われるので、
 自分で進めずに担当教員に相談してください。相談するときは、次の出力を一緒に伝えると話が早く
-なります（PowerShell で実行します）。
+なります（PowerShell で実行します）。入っているディストリの一覧と、その Ubuntu の版が分かります。
 
 ```powershell
 wsl --list --verbose
+wsl -e cat /etc/os-release
 ```
