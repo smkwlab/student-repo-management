@@ -28,16 +28,18 @@ docker info       # Docker が使えるか
 
 ## うまくいかないとき
 
-### `❌ Dockerがインストールされていません` で止まる（Windows）
+### `❌ docker コマンドが見つかりません` で止まる（Windows）
 
 Docker Desktop の WSL 統合が有効になっていません。**Docker Desktop は入っているので、
-メッセージが案内するインストール手順では解決しません。**
+インストールのやり直しでは解決しません。**
 
 [pcenv 9.4](https://www.nw.is.kyusan-u.ac.jp/pcenv/#94-docker-desktop-の-wsl-統合を確認するwindows-のみ)
-のとおり、Settings → Resources → WSL Integration で Ubuntu を有効にしてください。
+のとおり、Settings → Resources → WSL Integration で、使っている Ubuntu を
+有効にしてください（どれを有効にすればよいかは、メッセージに名前が出ます）。
 
-### `gh: command not found` になる（Windows）
+### `❌ gh コマンドが見つかりません` で止まる（Windows）
 
+自分で `gh` と打って `gh: command not found` と出る場合も同じ原因です。
 Windows 側に入れた gh は WSL から見えません。
 [pcenv 9.5.1](https://www.nw.is.kyusan-u.ac.jp/pcenv/#951-windows-の場合)
 のとおり、Ubuntu の中にインストールしてください。
