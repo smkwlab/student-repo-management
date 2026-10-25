@@ -55,6 +55,12 @@ case "$TOOLS_REPO" in
         exit 1 ;;
 esac
 TOOLS_CLONE_URL="${TOOLS_CLONE_URL:-https://github.com/${TOOLS_REPO_OWNER}/${TOOLS_REPO}.git}"
+# 前提条件の文書。案内文の URL は DEFAULT_ORG に追従させる（他 org 展開対応）。
+# TOOLS_CLONE_URL と同じく、検証済みの owner / repo から組み立てる。使うのは
+# ずっと下の docker / gh チェックだが、定義はここに置く。TOOLS_REPO_OWNER の
+# 定義より後ろであることが要るのに、set -u を使っていないので、離して書くと
+# 順序が崩れたときに URL が静かに壊れる（https://github.com///blob/... になる）。
+PREREQ_DOC="https://github.com/${TOOLS_REPO_OWNER}/${TOOLS_REPO}/blob/main/docs/PREREQUISITES.md"
 # TOOLS_CLONE_URL は完全上書きを許すため、git clone へ渡す前にスキームを検証する。
 # https:// / git@ 以外（ext:: や file:// 等の危険なスキーム、先頭 "-" による git の
 # 引数注入）を拒否する。既定値も https:// で始まるため通常運用に影響はない。
@@ -219,10 +225,40 @@ echo "🎯 文書タイプ: $DOC_TYPE"
 
 echo ""
 
+# WSL では Windows 側にインストールしたコマンドが Linux 側の PATH に現れない。
+# docker と gh はどちらもこれが最も多い原因で、しかも「入っていない」と案内すると
+# すでに入れている学生をインストールのやり直しに向かわせることになる。案内を分ける。
+#
+# 判定はまず WSL_DISTRO_NAME を見る。ディストリ名そのものが要るからで、Docker
+# Desktop の WSL Integration はディストリごとのチェックボックスなので、どれを
+# 有効にするかを名前で言える。
+#
+# ただしこの変数はログインシェルを経ない実行（wsl --exec 等）では設定されない
+# ことがある。そこで /proc/version も見る。案内を出せないまま旧来の誤った文面に
+# 落ちるのが、この分岐が直そうとしているものそのものなので、取りこぼさない。
+is_wsl() {
+    [ -n "${WSL_DISTRO_NAME:-}" ] && return 0
+    grep -qi microsoft /proc/version 2>/dev/null
+}
+
+# 名前が取れないときに「 を有効にして」と空白を出さないための既定。空文字を
+# そのまま埋めると、指示の対象が消えた文になる。
+WSL_LABEL="${WSL_DISTRO_NAME:-この Ubuntu}"
+
 # Docker の確認
 if ! command -v docker >/dev/null 2>&1; then
-    echo "❌ Dockerがインストールされていません"
-    echo "   https://docs.docker.com/get-docker/ からインストールしてください"
+    if is_wsl; then
+        echo "❌ docker コマンドが見つかりません"
+        echo "   WSL の中で実行しています。Docker Desktop が入っているなら、"
+        echo "   インストールのやり直しでは解決しません。"
+        echo "   Docker Desktop の Settings → Resources → WSL Integration で"
+        echo "   ${WSL_LABEL} を有効にしてください。"
+        echo "   まだ入れていない場合は、インストールから必要です。"
+        echo "   どちらの手順も: ${PREREQ_DOC}"
+    else
+        echo "❌ Dockerがインストールされていません"
+        echo "   https://docs.docker.com/get-docker/ からインストールしてください"
+    fi
     exit 1
 fi
 
@@ -232,10 +268,17 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-# GitHub CLI の確認（ホスト側）
+# GitHub CLI の確認（ホスト側。Windows ではその「ホスト」が WSL の中になる）
 if ! command -v gh >/dev/null 2>&1; then
-    echo "❌ GitHub CLI (gh) がインストールされていません"
-    echo "   https://cli.github.com/ からインストールしてください"
+    if is_wsl; then
+        echo "❌ gh コマンドが見つかりません"
+        echo "   WSL の中で実行しています。Windows 側に入れた gh は WSL から"
+        echo "   見えないため、${WSL_LABEL} の中にインストールする必要があります。"
+        echo "   ${PREREQ_DOC}"
+    else
+        echo "❌ GitHub CLI (gh) がインストールされていません"
+        echo "   https://cli.github.com/ からインストールしてください"
+    fi
     exit 1
 fi
 
