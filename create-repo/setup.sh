@@ -229,10 +229,21 @@ echo ""
 # docker と gh はどちらもこれが最も多い原因で、しかも「入っていない」と案内すると
 # すでに入れている学生をインストールのやり直しに向かわせることになる。案内を分ける。
 #
-# 判定は WSL が必ず設定する WSL_DISTRO_NAME で行う。/proc/version の microsoft でも
-# 判別できるが、ディストリ名そのものが要る（Docker Desktop の WSL Integration は
-# ディストリごとのチェックボックスなので、どれを有効にするかを名前で言える）。
-is_wsl() { [ -n "${WSL_DISTRO_NAME:-}" ]; }
+# 判定はまず WSL_DISTRO_NAME を見る。ディストリ名そのものが要るからで、Docker
+# Desktop の WSL Integration はディストリごとのチェックボックスなので、どれを
+# 有効にするかを名前で言える。
+#
+# ただしこの変数はログインシェルを経ない実行（wsl --exec 等）では設定されない
+# ことがある。そこで /proc/version も見る。案内を出せないまま旧来の誤った文面に
+# 落ちるのが、この分岐が直そうとしているものそのものなので、取りこぼさない。
+is_wsl() {
+    [ -n "${WSL_DISTRO_NAME:-}" ] && return 0
+    grep -qi microsoft /proc/version 2>/dev/null
+}
+
+# 名前が取れないときに「 を有効にして」と空白を出さないための既定。空文字を
+# そのまま埋めると、指示の対象が消えた文になる。
+WSL_LABEL="${WSL_DISTRO_NAME:-この Ubuntu}"
 
 # Docker の確認
 if ! command -v docker >/dev/null 2>&1; then
@@ -241,8 +252,9 @@ if ! command -v docker >/dev/null 2>&1; then
         echo "   WSL の中で実行しています。Docker Desktop が入っているなら、"
         echo "   インストールのやり直しでは解決しません。"
         echo "   Docker Desktop の Settings → Resources → WSL Integration で"
-        echo "   ${WSL_DISTRO_NAME} を有効にしてください。"
-        echo "   ${PREREQ_DOC}"
+        echo "   ${WSL_LABEL} を有効にしてください。"
+        echo "   まだ入れていない場合は、インストールから必要です。"
+        echo "   どちらの手順も: ${PREREQ_DOC}"
     else
         echo "❌ Dockerがインストールされていません"
         echo "   https://docs.docker.com/get-docker/ からインストールしてください"
@@ -261,7 +273,7 @@ if ! command -v gh >/dev/null 2>&1; then
     if is_wsl; then
         echo "❌ gh コマンドが見つかりません"
         echo "   WSL の中で実行しています。Windows 側に入れた gh は WSL から"
-        echo "   見えないため、${WSL_DISTRO_NAME} の中にインストールする必要があります。"
+        echo "   見えないため、${WSL_LABEL} の中にインストールする必要があります。"
         echo "   ${PREREQ_DOC}"
     else
         echo "❌ GitHub CLI (gh) がインストールされていません"

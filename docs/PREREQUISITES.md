@@ -30,12 +30,13 @@ docker info       # Docker が使えるか
 
 ### `❌ docker コマンドが見つかりません` で止まる（Windows）
 
-Docker Desktop の WSL 統合が有効になっていません。**Docker Desktop は入っているので、
-インストールのやり直しでは解決しません。**
-
+**Docker Desktop が入っているなら、インストールのやり直しでは解決しません。**
+WSL 統合が有効になっていないためです。
 [pcenv 9.4](https://www.nw.is.kyusan-u.ac.jp/pcenv/#94-docker-desktop-の-wsl-統合を確認するwindows-のみ)
 のとおり、Settings → Resources → WSL Integration で、使っている Ubuntu を
 有効にしてください（どれを有効にすればよいかは、メッセージに名前が出ます）。
+
+まだ入れていない場合は、上の「環境構築」から入れたうえで、同じ設定を行います。
 
 ### `❌ gh コマンドが見つかりません` で止まる（Windows）
 
