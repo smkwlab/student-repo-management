@@ -55,6 +55,12 @@ case "$TOOLS_REPO" in
         exit 1 ;;
 esac
 TOOLS_CLONE_URL="${TOOLS_CLONE_URL:-https://github.com/${TOOLS_REPO_OWNER}/${TOOLS_REPO}.git}"
+# 前提条件の文書。案内文の URL は DEFAULT_ORG に追従させる（他 org 展開対応）。
+# TOOLS_CLONE_URL と同じく、検証済みの owner / repo から組み立てる。使うのは
+# ずっと下の docker / gh チェックだが、定義はここに置く。TOOLS_REPO_OWNER の
+# 定義より後ろであることが要るのに、set -u を使っていないので、離して書くと
+# 順序が崩れたときに URL が静かに壊れる（https://github.com///blob/... になる）。
+PREREQ_DOC="https://github.com/${TOOLS_REPO_OWNER}/${TOOLS_REPO}/blob/main/docs/PREREQUISITES.md"
 # TOOLS_CLONE_URL は完全上書きを許すため、git clone へ渡す前にスキームを検証する。
 # https:// / git@ 以外（ext:: や file:// 等の危険なスキーム、先頭 "-" による git の
 # 引数注入）を拒否する。既定値も https:// で始まるため通常運用に影響はない。
@@ -227,9 +233,6 @@ echo ""
 # 判別できるが、ディストリ名そのものが要る（Docker Desktop の WSL Integration は
 # ディストリごとのチェックボックスなので、どれを有効にするかを名前で言える）。
 is_wsl() { [ -n "${WSL_DISTRO_NAME:-}" ]; }
-
-# 前提条件の文書。案内文の URL は DEFAULT_ORG に追従させる（他 org 展開対応）。
-PREREQ_DOC="https://github.com/${TOOLS_REPO_OWNER}/${TOOLS_REPO}/blob/main/docs/PREREQUISITES.md"
 
 # Docker の確認
 if ! command -v docker >/dev/null 2>&1; then
