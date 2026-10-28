@@ -69,6 +69,11 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 ROSTER_FILE="$WORK_DIR/roster.csv"
 ROSTER_AVAILABLE=false
 
+# gh の stderr の置き場。ファイルが無いことと要求が失敗したことは、どちらも gh を
+# 非ゼロで終わらせる。見分けられるのは stderr だけである
+# （thesis-report の collect-progress.sh と同じ理由・同じ手）
+API_ERR="$WORK_DIR/api-err.txt"
+
 # 年度（4月〜3月）。thesis-report の collect-progress.sh と同じ計算にそろえる。
 # ずれると名簿を引く年度が変わり、氏名が引けなくなる。
 fiscal_year() {
@@ -123,11 +128,20 @@ lookup_author() {
 
 # 最新の draft ブランチ名（0th-draft, 1st-draft, ... のうち序数が最大のもの）。
 # 学生が執筆しているのは常に最新の draft であり、そこが README.md の権威になる。
+#
+# 取得に失敗したときは非ゼロで終わる。空を返して「draft が無い」と同じ扱いにすると、
+# 消えた・改名されたリポジトリや一時的な障害がスキップとして成功に数えられてしまう。
 latest_draft_branch() {
-    local repo="$1"
+    local repo="$1" branches="$WORK_DIR/branches.txt"
 
-    gh api "repos/${repo}/branches" --paginate --jq '.[].name' 2>/dev/null \
-        | awk '/^[0-9]+(st|nd|rd|th)-draft$/ { ordinal = $0; sub(/[^0-9].*$/, "", ordinal); print ordinal, $0 }' \
+    if ! gh api "repos/${repo}/branches" --paginate --jq '.[].name' \
+        > "$branches" 2>"$API_ERR"; then
+        error "  ブランチ一覧を取得できない (${repo}): $(tr '\n' ' ' < "$API_ERR")"
+        return 1
+    fi
+
+    awk '/^[0-9]+(st|nd|rd|th)-draft$/ { ordinal = $0; sub(/[^0-9].*$/, "", ordinal); print ordinal, $0 }' \
+        "$branches" \
         | sort -k1,1n \
         | tail -1 \
         | cut -d' ' -f2
@@ -162,19 +176,42 @@ can_push_to_main() {
              | index($slug) != null' >/dev/null 2>&1
 }
 
-# README.md をそのブランチから取り出す。無ければ非ゼロ。
+# README.md をそのブランチから取り出す。
+#
+# 「無い」と「取得できなかった」を呼び出し側が区別できるように返り値を分ける。
+# ひとまとめにすると、一時的な 5xx や認証の失敗が「README.md が無い」と読めて
+# しまい、黙ってスキップされる。
+#   0: 取得できた
+#   1: そのブランチに README.md が無い（404）
+#   2: 取得に失敗した（それ以外）
 fetch_readme() {
     local repo="$1" ref="$2" out="$3"
 
-    gh api "repos/${repo}/contents/README.md?ref=${ref}" \
-        -H "Accept: application/vnd.github.raw" > "$out" 2>/dev/null
+    if gh api "repos/${repo}/contents/README.md?ref=${ref}" \
+        -H "Accept: application/vnd.github.raw" > "$out" 2>"$API_ERR"; then
+        return 0
+    fi
+
+    if grep -q "HTTP 404" "$API_ERR"; then
+        return 1
+    fi
+
+    error "  README.md を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
+    return 2
 }
 
-# README.md の blob SHA（contents API の更新に必要）。無ければ空。
+# README.md の blob SHA（contents API の更新に必要）。
+# 取得できなければ何も書かず非ゼロで終わる。失敗の内容は stderr に出す
+# （呼び出し側は $(...) で受けるので、ここに出した説明はログに残る）。
 readme_sha() {
     local repo="$1" ref="$2"
 
-    gh api "repos/${repo}/contents/README.md?ref=${ref}" --jq '.sha' 2>/dev/null || true
+    if gh api "repos/${repo}/contents/README.md?ref=${ref}" --jq '.sha' 2>"$API_ERR"; then
+        return 0
+    fi
+
+    error "  README.md の SHA を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
+    return 1
 }
 
 # ファイルを contents API で push する。
@@ -232,17 +269,25 @@ sync_repository() {
     local repo="${OWNER}/${repo_name}"
     local draft desired main_readme sha student_id author
 
-    draft=$(latest_draft_branch "$repo")
+    draft=$(latest_draft_branch "$repo") || return 1
     if [ -z "$draft" ]; then
         log "  draft ブランチが無いためスキップ: $repo_name"
         return 0
     fi
 
     desired="$WORK_DIR/desired-readme.md"
-    if ! fetch_readme "$repo" "$draft" "$desired"; then
-        log "  $draft に README.md が無いためスキップ: $repo_name"
-        return 0
-    fi
+    local status=0
+    fetch_readme "$repo" "$draft" "$desired" || status=$?
+    case "$status" in
+        0) ;;
+        1)
+            log "  $draft に README.md が無いためスキップ: $repo_name"
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 
     # 1. 氏名のプレースホルダが残っているなら名簿から埋め、draft に push する。
     #    draft を権威とする設計なので、補完も draft 側へ行う。
@@ -281,13 +326,23 @@ sync_repository() {
     # 2. main が draft と違うなら、draft の内容を main に写す。
     main_readme="$WORK_DIR/main-readme.md"
     local main_has_readme=false
-    if fetch_readme "$repo" main "$main_readme"; then
-        main_has_readme=true
-        if cmp -s "$desired" "$main_readme"; then
-            log "  main は $draft と一致している: $repo_name"
-            return 0
-        fi
-    fi
+    status=0
+    fetch_readme "$repo" main "$main_readme" || status=$?
+    case "$status" in
+        0)
+            main_has_readme=true
+            if cmp -s "$desired" "$main_readme"; then
+                log "  main は $draft と一致している: $repo_name"
+                return 0
+            fi
+            ;;
+        1)
+            # main に README.md が無い。作成する
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 
     if ! can_push_to_main "$repo"; then
         warn "  main の保護にバイパスが無いため push できない: $repo_name"

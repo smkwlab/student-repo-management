@@ -66,6 +66,8 @@ jobs:
           # App 自身の slug を渡すので、org ごとに App 名を書き分ける必要は無い
           AUTOMATION_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
+          # schedule では inputs が存在しないため、この式は空文字列に展開される。
+          # つまり定期実行は常に通常実行で、dry-run は workflow_dispatch 限定
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             bash scripts/sync-author-readme.sh --dry-run
           else

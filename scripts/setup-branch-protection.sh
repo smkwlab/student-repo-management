@@ -473,29 +473,43 @@ main() {
 }
 
 # コマンドライン処理
-case "${1:-}" in
-    -h|--help)
-        show_help
-        exit 0
-        ;;
-    --update)
-        UPDATE_EXISTING=true
-        shift
-        if [ -z "${1:-}" ]; then
-            error "Repository name is required"
+#
+# オプションを先に食い切ってから main を 1 箇所だけで呼ぶ。分岐ごとに main を
+# 呼ぶ形にすると呼び出し箇所が増えるうえ、オプションの後ろにオプションが来た
+# 場合（--update -h など）を取りこぼす。
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        --update)
+            UPDATE_EXISTING=true
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            # 以前は未知のオプションがリポジトリ名として main に渡っていた。
+            # リポジトリ名が '-' で始まることは無いので、ここで弾く
+            error "Unknown option: $1"
             echo
             show_help
             exit 1
-        fi
-        main "$@"
-        ;;
-    "")
-        error "Repository name is required"
-        echo
-        show_help
-        exit 1
-        ;;
-    *)
-        main "$@"
-        ;;
-esac
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [ -z "${1:-}" ]; then
+    error "Repository name is required"
+    echo
+    show_help
+    exit 1
+fi
+
+main "$@"
