@@ -1,0 +1,68 @@
+---
+# README.md の著者情報を draft ブランチから main へ同期する
+# （smkwlab/latex-ecosystem#191）
+#
+# 学生リポジトリの main は提出時の最終 merge まで draft の内容を受け取らず、
+# 実測では大半のリポジトリで提出時にも受け取っていない。README.md が掲げる
+# 「このファイルは自分のリポジトリのトップページに表示されます」は、トップページ
+# が main を表示するため執筆期間中は成り立たない。これを日次で埋める。
+#
+# ここに置く理由: 学生リポジトリ側の workflow では main の保護を越えられず、
+# 越えるための秘密を学生リポジトリに配ることもできない（学生は自分のリポジトリ
+# で任意の workflow を実行できる）。中央から App token で押し込む形にすれば、
+# 学生リポジトリには何も置かずに済み、既存リポジトリへの伝播も要らない。
+name: Sync Author README
+
+"on":
+  schedule:
+    # 毎日 10:00 JST（01:00 UTC）。著者情報の反映に即時性は要らないので、
+    # 監査（月曜 09:00 JST）と時間帯を分けて並走させない
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report what would change without pushing'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      # 規約: <org>/thesis-student-registry。逸脱時のみ org/repo variable
+      # REGISTRY_REPO で override（ECOSYSTEM.md: Organization-Scoped Deployment）
+      REGISTRY_REPO: ${{ vars.REGISTRY_REPO || format('{0}/thesis-student-registry', github.repository_owner) }}
+      # 氏名の名簿。既定は <org>/thesis-report で、thesis-report 自身が進捗表の
+      # 著者名を引いているのと同じ CSV を同じ規則で読む
+      ROSTER_REPO: ${{ vars.ROSTER_REPO || format('{0}/thesis-report', github.repository_owner) }}
+    steps:
+      # GitHub App の installation token を毎回発行する（PAT の無通知失効を排除）。
+      # 学生リポジトリの README 更新・名簿参照・レジストリ参照に cross-repo token
+      # が必要
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Sync README.md onto main
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # 保護された main へ push できるのは、ブランチ保護の
+          # bypass_pull_request_allowances に載っている App だけ。token を発行した
+          # App 自身の slug を渡すので、org ごとに App 名を書き分ける必要は無い
+          AUTOMATION_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            bash scripts/sync-author-readme.sh --dry-run
+          else
+            bash scripts/sync-author-readme.sh
+          fi

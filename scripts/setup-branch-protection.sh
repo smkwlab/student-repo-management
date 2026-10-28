@@ -18,6 +18,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly DEFAULT_OWNER="${REPO_OWNER:-smkwlab}"
 readonly REGISTRY_OWNER="${REGISTRY_OWNER:-smkwlab}"
 
+# 既に保護済みのブランチへ設定を再適用するか（--update で true）。
+# 既定の false は「一度設定したものには触らない」という従来の冪等性を保つ。
+# 既存リポジトリへ新しい宣言（AUTOMATION_APP_SLUG のバイパスなど）を行き渡らせる
+# ときだけ true にする。保護設定の PUT は全項目置換なので、GitHub 上で手で加えた
+# 変更はこのスクリプトの宣言で上書きされる。
+UPDATE_EXISTING=false
+
 # カラー定義
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -226,10 +233,31 @@ setup_protection() {
 
     # 各ブランチへの保護設定
     #
-    # bypass_pull_request_allowances は空配列で明示的に送る。フィールドを省くと
-    # 既存の設定が残るため、消したい場合は空で上書きするしかない。学生リポジトリ
-    # の main をレビューなしでマージできる主体は作らない、という状態へ毎回収束
-    # させる意図なので、簡略化して省かないこと。
+    # bypass_pull_request_allowances は常に明示的に送る。フィールドを省くと既存の
+    # 設定が残るため、変えたい場合は上書きするしかない。簡略化して省かないこと。
+    #
+    # AUTOMATION_APP_SLUG が与えられたときだけ、その GitHub App に main のレビュー
+    # 要件をバイパスさせる。README.md を draft ブランチから main へ同期する
+    # scripts/sync-author-readme.sh が、学生リポジトリに秘密を置かずに main を
+    # 更新するための唯一の経路である（smkwlab/latex-ecosystem#191）。#577 は
+    # 「Actions がバイパスする必要は無い」として同設定を削除したが、その対応 3 が
+    # 「将来必要になれば話が変わる」と留保していた、まさにその場合にあたる。
+    #
+    # 値に "github-actions" を書いても効かない。GitHub Actions は installation と
+    # してこの一覧に載らず、API は受理したように応答しながら空配列を返す。#577 で
+    # 「設定しているのに反映されていない」と観測された原因はこれである。org に
+    # 導入済みの GitHub App の slug だけが受理される（実測済み）。
+    #
+    # 未指定なら空配列を送る。バイパスできる主体を作らない従来の状態に収束する。
+    local bypass_apps_json='[]'
+    if [ -n "${AUTOMATION_APP_SLUG:-}" ]; then
+        if [[ ! "$AUTOMATION_APP_SLUG" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then
+            error "AUTOMATION_APP_SLUG が GitHub App の slug として不正です: $AUTOMATION_APP_SLUG"
+            return 1
+        fi
+        bypass_apps_json="[\"$AUTOMATION_APP_SLUG\"]"
+    fi
+
     local protection_config='{
         "required_status_checks": {
             "strict": false,
@@ -246,7 +274,7 @@ setup_protection() {
             "bypass_pull_request_allowances": {
                 "users": [],
                 "teams": [],
-                "apps": []
+                "apps": '"$bypass_apps_json"'
             }
         },
         "enforce_admins": false,
@@ -263,9 +291,12 @@ setup_protection() {
         
         # 既存の保護設定確認（冪等性保証）
         if gh api "repos/$owner/$repo_name/branches/$branch/protection" >/dev/null 2>&1; then
-            log "ブランチ '$branch' は既に保護設定済みです"
-            success_count=$((success_count + 1))
-            continue
+            if [ "$UPDATE_EXISTING" != true ]; then
+                log "ブランチ '$branch' は既に保護設定済みです"
+                success_count=$((success_count + 1))
+                continue
+            fi
+            log "ブランチ '$branch' は既に保護設定済みですが、--update のため再適用します"
         fi
         
         log "ブランチ '$branch' に保護設定を適用中..."
@@ -328,8 +359,16 @@ show_help() {
     cat <<EOF
 Individual Branch Protection Setup Script
 
-Usage: $0 <repository_name>
-       $0 <owner>/<repository_name>
+Usage: $0 [--update] <repository_name>
+       $0 [--update] <owner>/<repository_name>
+
+Options:
+  --update               Re-apply the protection settings to branches that are
+                         already protected. Without it, an already-protected
+                         branch is left untouched. Use this to roll a changed
+                         declaration (e.g. AUTOMATION_APP_SLUG) out to existing
+                         repositories. The protection PUT replaces every field,
+                         so manual changes made on GitHub are overwritten.
 
 Arguments:
   repository_name        Repository name only. The owner defaults to
@@ -344,6 +383,13 @@ Environment:
   REGISTRY_OWNER Owner whose repositories are tracked in the student registry.
                  The registry (thesis-student-registry) is only updated when the
                  target owner matches this value (default: smkwlab)
+  AUTOMATION_APP_SLUG
+                 Slug of the organization's GitHub App that is allowed to bypass
+                 the pull request review requirement on main. Only an App
+                 installed in the organization is accepted; "github-actions"
+                 is silently ignored by the API. Unset means no actor may
+                 bypass. scripts/sync-author-readme.sh needs this to mirror
+                 README.md onto main (smkwlab/latex-ecosystem#191).
 
 Examples:
   $0 k21rs001-sotsuron              # → smkwlab/k21rs001-sotsuron (default owner)
@@ -354,6 +400,7 @@ Examples:
 
 Protection Rules Applied:
   - Requires 1 approving review before merge
+  - Lets the AUTOMATION_APP_SLUG App bypass that requirement, when set
   - Dismisses stale reviews when new commits are pushed
   - Prevents force pushes and branch deletion
   - Does not enforce admin restrictions
@@ -430,6 +477,17 @@ case "${1:-}" in
     -h|--help)
         show_help
         exit 0
+        ;;
+    --update)
+        UPDATE_EXISTING=true
+        shift
+        if [ -z "${1:-}" ]; then
+            error "Repository name is required"
+            echo
+            show_help
+            exit 1
+        fi
+        main "$@"
         ;;
     "")
         error "Repository name is required"
