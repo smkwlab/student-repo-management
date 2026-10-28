@@ -142,6 +142,14 @@ can_push_to_main() {
         return 0
     fi
 
+    # 保護があってもレビュー必須でなければ（ステータスチェックのみなど）
+    # バイパスは要らない。バイパスの有無だけで判定すると、そうした保護の
+    # リポジトリを push できないものとして過剰にスキップしてしまう
+    if ! printf '%s' "$protection" \
+        | jq -e '.required_pull_request_reviews != null' >/dev/null 2>&1; then
+        return 0
+    fi
+
     if [ -z "${AUTOMATION_APP_SLUG:-}" ]; then
         return 1
     fi
@@ -199,6 +207,9 @@ fill_placeholders() {
     # -v での代入時にもエスケープが一段解釈されるため、氏名に & が入ると二重に
     # 壊れる（"A & B" が "A （氏名） B" になる）。split して連結すれば置換文字列
     # の解釈が入らないので、氏名をそのまま埋められる。
+    # split の第 3 引数は正規表現として解釈される。ここで渡すプレースホルダは
+    # 全角括弧（）を含むが、正規表現のメタ文字は ASCII の () だけなので、全角は
+    # リテラルとして一致する。プレースホルダを変える場合はこの前提を確認すること。
     awk -v name="$name" -v id="$student_id" '
         function replace(s, from, to,    parts, out, i, n) {
             n = split(s, parts, from)

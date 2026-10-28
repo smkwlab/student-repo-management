@@ -29,6 +29,11 @@ name: Sync Author README
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # API 呼び出しはすべて App token で行い、GITHUB_TOKEN は checkout でこの
+    # リポジトリを読むためだけに使う。学生リポジトリへの書き込み権限を
+    # GITHUB_TOKEN に持たせない（持たせても保護された main には届かない）
+    permissions:
+      contents: read
     env:
       # 規約: <org>/thesis-student-registry。逸脱時のみ org/repo variable
       # REGISTRY_REPO で override（ECOSYSTEM.md: Organization-Scoped Deployment）
