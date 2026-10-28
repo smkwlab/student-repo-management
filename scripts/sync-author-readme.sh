@@ -214,6 +214,11 @@ fetch_readme() {
 
     # content は base64 で、改行を挟んで返る。復号に openssl を使うのは
     # base64(1) の復号オプションが環境で揺れるため（GNU は -d、BSD は -D）。
+    #
+    # -A は外せない。openssl base64 -d は -A が無いと入力が 64 文字で折り返されて
+    # いる前提で読むので、tr -d '\n' で 1 行にしたものを渡すと **何も出さずに
+    # 成功する**（空の README.md を main に push することになる）。tr で 1 行に
+    # しているからこそ -A が要るという関係で、どちらも冗長ではない。
     printf '%s' "$json" | jq -r '.content' | tr -d '\n' | openssl base64 -d -A > "$out"
 }
 
