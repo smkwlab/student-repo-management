@@ -255,19 +255,23 @@ put_readme() {
 fill_placeholders() {
     local name="$1" student_id="$2" in="$3" out="$4"
 
-    # gsub は使わない。gsub の置換文字列では & が「一致した文字列」を意味し、
-    # -v での代入時にもエスケープが一段解釈されるため、氏名に & が入ると二重に
-    # 壊れる（"A & B" が "A （氏名） B" になる）。split して連結すれば置換文字列
-    # の解釈が入らないので、氏名をそのまま埋められる。
-    # split の第 3 引数は正規表現として解釈される。ここで渡すプレースホルダは
-    # 全角括弧（）を含むが、正規表現のメタ文字は ASCII の () だけなので、全角は
-    # リテラルとして一致する。プレースホルダを変える場合はこの前提を確認すること。
+    # gsub も split も使わない。どちらも正規表現を経由するため、置換の両側で
+    # 文字列が解釈される。
+    #   - gsub の置換文字列では & が「一致した文字列」を意味し、-v の代入でも
+    #     エスケープが一段消えるので、& を含む氏名が二重に壊れる
+    #     （"A & B" が "A （氏名） B" になる）。実際に踏んで直した
+    #   - split の第 3 引数は正規表現として解釈される。現在のプレースホルダは
+    #     全角括弧なので実害は無いが、ASCII のメタ文字を含む形に変えた途端に壊れる
+    # index と substr で回せば、from 側も to 側も解釈が入らない。
     awk -v name="$name" -v id="$student_id" '
-        function replace(s, from, to,    parts, out, i, n) {
-            n = split(s, parts, from)
-            out = parts[1]
-            for (i = 2; i <= n; i++) out = out to parts[i]
-            return out
+        function replace(s, from, to,    out, pos, flen) {
+            out = ""
+            flen = length(from)
+            while ((pos = index(s, from)) > 0) {
+                out = out substr(s, 1, pos - 1) to
+                s = substr(s, pos + flen)
+            }
+            return out s
         }
         {
             line = replace($0, "（氏名）", name)
@@ -378,12 +382,23 @@ sync_repository() {
 # review_flow が true のものだけを対象にする。draft ブランチ階層を使うのはこれら
 # で、main が執筆期間中ずっと置き去りになるのも これらだけである。
 list_targets() {
-    gh api "repos/${REGISTRY_REPO}/contents/data/registry.json" \
-        -H "Accept: application/vnd.github.raw" \
-        | jq -r 'to_entries[]
-                 | select(.value.review_flow == true)
-                 | select(.value.archived_at == null)
-                 | .key'
+    local registry="$WORK_DIR/registry.json"
+
+    # 取得と解釈を分ける。1 本のパイプにすると、レジストリが読めないのか中身の
+    # 形が変わったのかが同じエラーに潰れ、原因の切り分けができない
+    if ! gh api "repos/${REGISTRY_REPO}/contents/data/registry.json" \
+        -H "Accept: application/vnd.github.raw" > "$registry" 2>"$API_ERR"; then
+        error "レジストリを取得できない (${REGISTRY_REPO}): $(tr '\n' ' ' < "$API_ERR")"
+        return 1
+    fi
+
+    if ! jq -r 'to_entries[]
+                | select(.value.review_flow == true)
+                | select(.value.archived_at == null)
+                | .key' "$registry" 2>"$API_ERR"; then
+        error "レジストリの形が想定と違う (${REGISTRY_REPO}): $(tr '\n' ' ' < "$API_ERR")"
+        return 1
+    fi
 }
 
 main() {
@@ -399,8 +414,8 @@ main() {
         log "対象: 引数で指定された ${#targets[@]} リポジトリ"
     else
         local listed
+        # 失敗の内容は list_targets が具体的に報告している
         if ! listed=$(list_targets); then
-            error "レジストリを読めません: ${REGISTRY_REPO}"
             exit 1
         fi
         if [ -z "$listed" ]; then
