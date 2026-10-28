@@ -44,7 +44,7 @@
 #   個人トークンでも main の保護を越えられる場合があるが（管理者は
 #   enforce_admins: false で越えられる）、人の操作と自動化の履歴が混ざるため避ける。
 
-set -eu
+set -euo pipefail
 
 OWNER="${REPO_OWNER:-smkwlab}"
 REGISTRY_REPO="${REGISTRY_REPO:-${OWNER}/thesis-student-registry}"
@@ -73,6 +73,9 @@ ROSTER_AVAILABLE=false
 # 非ゼロで終わらせる。見分けられるのは stderr だけである
 # （thesis-report の collect-progress.sh と同じ理由・同じ手）
 API_ERR="$WORK_DIR/api-err.txt"
+
+# 直近の fetch_readme が取った README.md の blob SHA。成功時のみ設定される。
+FETCHED_SHA=""
 
 # 年度（4月〜3月）。thesis-report の collect-progress.sh と同じ計算にそろえる。
 # ずれると名簿を引く年度が変わり、氏名が引けなくなる。
@@ -176,42 +179,37 @@ can_push_to_main() {
              | index($slug) != null' >/dev/null 2>&1
 }
 
-# README.md をそのブランチから取り出す。
+# README.md をそのブランチから取り出し、blob SHA を FETCHED_SHA に置く。
 #
-# 「無い」と「取得できなかった」を呼び出し側が区別できるように返り値を分ける。
+# 内容と SHA を 1 回の呼び出しで取るのが要点である。別々に取ると、その間に
+# push された場合に「新しい SHA + 古い内容」で上書きすることになり、学生の
+# commit を失う。同じ応答から取った SHA を使えば、ブランチが動いていた場合は
+# PUT が 409 で失敗する。取り違えて上書きするより、失敗するほうが良い。
+#
+# 「無い」と「取得できなかった」は呼び出し側が区別できるように返り値を分ける。
 # ひとまとめにすると、一時的な 5xx や認証の失敗が「README.md が無い」と読めて
 # しまい、黙ってスキップされる。
-#   0: 取得できた
+#   0: 取得できた（FETCHED_SHA にその時点の SHA が入る）
 #   1: そのブランチに README.md が無い（404）
 #   2: 取得に失敗した（それ以外）
 fetch_readme() {
-    local repo="$1" ref="$2" out="$3"
+    local repo="$1" ref="$2" out="$3" json
 
-    if gh api "repos/${repo}/contents/README.md?ref=${ref}" \
-        -H "Accept: application/vnd.github.raw" > "$out" 2>"$API_ERR"; then
-        return 0
+    FETCHED_SHA=""
+
+    if ! json=$(gh api "repos/${repo}/contents/README.md?ref=${ref}" 2>"$API_ERR"); then
+        if grep -q "HTTP 404" "$API_ERR"; then
+            return 1
+        fi
+        error "  README.md を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
+        return 2
     fi
 
-    if grep -q "HTTP 404" "$API_ERR"; then
-        return 1
-    fi
+    FETCHED_SHA=$(printf '%s' "$json" | jq -r '.sha')
 
-    error "  README.md を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
-    return 2
-}
-
-# README.md の blob SHA（contents API の更新に必要）。
-# 取得できなければ何も書かず非ゼロで終わる。失敗の内容は stderr に出す
-# （呼び出し側は $(...) で受けるので、ここに出した説明はログに残る）。
-readme_sha() {
-    local repo="$1" ref="$2"
-
-    if gh api "repos/${repo}/contents/README.md?ref=${ref}" --jq '.sha' 2>"$API_ERR"; then
-        return 0
-    fi
-
-    error "  README.md の SHA を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
-    return 1
+    # content は base64 で、改行を挟んで返る。復号に openssl を使うのは
+    # base64(1) の復号オプションが環境で揺れるため（GNU は -d、BSD は -D）。
+    printf '%s' "$json" | jq -r '.content' | tr -d '\n' | openssl base64 -d -A > "$out"
 }
 
 # ファイルを contents API で push する。
@@ -239,6 +237,11 @@ put_readme() {
 # 6 つのテンプレートすべてが同じプレースホルダ（（氏名）と（k00rs000））を使って
 # いるため、置換は文字列一致で足りる。種別や所属は選択肢の削除を学生に委ねている
 # ので触らない（機械的に決まるのは氏名と学籍番号だけ）。
+#
+# 埋める学籍番号はリポジトリ名の先頭部分そのままで、`k` 付きの小文字である
+# （例: k23rs017）。プレースホルダ側も `k` 付きの小文字なので形式が揃う。
+# lookup_author が `k` を落として大文字化するのは名簿の列に合わせるためだけで、
+# README に書く表記とは別物である。
 fill_placeholders() {
     local name="$1" student_id="$2" in="$3" out="$4"
 
@@ -267,7 +270,8 @@ fill_placeholders() {
 sync_repository() {
     local repo_name="$1"
     local repo="${OWNER}/${repo_name}"
-    local draft desired main_readme sha student_id author
+    local draft desired main_readme student_id author
+    local draft_sha main_sha status
 
     draft=$(latest_draft_branch "$repo") || return 1
     if [ -z "$draft" ]; then
@@ -275,11 +279,19 @@ sync_repository() {
         return 0
     fi
 
+    # main に書けないことが分かっているなら、何も変えずに止める。draft への補完を
+    # 先に走らせると、補完だけ済んで main に届かないという中途半端な状態になる
+    if ! can_push_to_main "$repo"; then
+        warn "  main の保護にバイパスが無いため push できない: $repo_name"
+        warn "    scripts/setup-branch-protection.sh --update $repo_name で設定する"
+        return 1
+    fi
+
     desired="$WORK_DIR/desired-readme.md"
-    local status=0
+    status=0
     fetch_readme "$repo" "$draft" "$desired" || status=$?
     case "$status" in
-        0) ;;
+        0) draft_sha="$FETCHED_SHA" ;;
         1)
             log "  $draft に README.md が無いためスキップ: $repo_name"
             return 0
@@ -302,12 +314,9 @@ sync_repository() {
             if [ "$DRY_RUN" = true ]; then
                 log "  [dry-run] $draft の著者情報を名簿から補完する"
             else
-                local draft_sha
-                draft_sha=$(readme_sha "$repo" "$draft")
-                if [ -z "$draft_sha" ]; then
-                    error "  $draft の README.md の SHA を取得できない: $repo_name"
-                    return 1
-                fi
+                # 内容と同じ応答から取った SHA を渡す。学生がこの数秒の間に
+                # draft へ push していた場合、PUT は 409 で失敗する。学生の
+                # commit を上書きするより、失敗して次回に回すほうが良い
                 put_readme "$repo" "$draft" "$filled" \
                     "docs: fill in the author information from the lab roster" \
                     "$draft_sha"
@@ -325,50 +334,32 @@ sync_repository() {
 
     # 2. main が draft と違うなら、draft の内容を main に写す。
     main_readme="$WORK_DIR/main-readme.md"
-    local main_has_readme=false
+    main_sha=""
     status=0
     fetch_readme "$repo" main "$main_readme" || status=$?
     case "$status" in
         0)
-            main_has_readme=true
+            main_sha="$FETCHED_SHA"
             if cmp -s "$desired" "$main_readme"; then
                 log "  main は $draft と一致している: $repo_name"
                 return 0
             fi
             ;;
         1)
-            # main に README.md が無い。作成する
+            # main に README.md が無い。SHA 無しの PUT で作成する
             ;;
         *)
             return 1
             ;;
     esac
 
-    if ! can_push_to_main "$repo"; then
-        warn "  main の保護にバイパスが無いため push できない: $repo_name"
-        warn "    scripts/setup-branch-protection.sh --update $repo_name で設定する"
-        return 1
-    fi
-
     if [ "$DRY_RUN" = true ]; then
         log "  [dry-run] $draft の README.md を main に写す: $repo_name"
         return 0
     fi
 
-    # SHA が空になる理由は「main に README.md が無い」と「取得に失敗した」の 2 つ
-    # あり、取り違えると既存ファイルに対して作成を試みて 422 になる。main 側の
-    # 取得が成功しているかどうかで存在は分かっているので、ここで区別する。
-    sha=""
-    if [ "$main_has_readme" = true ]; then
-        sha=$(readme_sha "$repo" main)
-        if [ -z "$sha" ]; then
-            error "  main の README.md の SHA を取得できない: $repo_name"
-            return 1
-        fi
-    fi
-
     put_readme "$repo" main "$desired" \
-        "docs: mirror README.md from ${draft} onto main" "$sha"
+        "docs: mirror README.md from ${draft} onto main" "$main_sha"
     success "  $draft の README.md を main に写した: $repo_name"
 }
 
@@ -441,7 +432,10 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         -h|--help)
-            sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'
+            # 先頭のコメントブロックをそのまま出す。shebang を飛ばし、コメントで
+            # ない行に当たったら止める（行数を固定すると、説明を増やしたときに
+            # 途中で切れる）
+            awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
             exit 0
             ;;
         --*)
