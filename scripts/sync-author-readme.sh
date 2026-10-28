@@ -107,6 +107,8 @@ load_roster() {
 lookup_author() {
     local student_id="$1" normalized column
 
+    # 契約: 引けたら氏名を標準出力に書き、引けなければ何も書かない。名簿が無い
+    # 場合も「引けなかった」と同じ扱いにする（呼び出し側は空かどうかだけを見る）。
     [ "$ROSTER_AVAILABLE" = true ] || return 0
 
     normalized=$(printf '%s' "$student_id" | sed 's/^[kK]//' | tr '[:lower:]' '[:upper:]')
@@ -255,11 +257,21 @@ sync_repository() {
             if [ "$DRY_RUN" = true ]; then
                 log "  [dry-run] $draft の著者情報を名簿から補完する"
             else
+                local draft_sha
+                draft_sha=$(readme_sha "$repo" "$draft")
+                if [ -z "$draft_sha" ]; then
+                    error "  $draft の README.md の SHA を取得できない: $repo_name"
+                    return 1
+                fi
                 put_readme "$repo" "$draft" "$filled" \
                     "docs: fill in the author information from the lab roster" \
-                    "$(readme_sha "$repo" "$draft")"
+                    "$draft_sha"
                 success "  $draft の著者情報を名簿から補完した"
             fi
+
+            # dry-run でも採用する。この後の main との比較を、実行したときと同じ
+            # 内容で行うため。ここで分けると dry-run だけ「main と一致」と報告して
+            # しまい、実行結果を予告できなくなる
             mv "$filled" "$desired"
         else
             log "  名簿に $student_id の行が無いため著者情報の補完をスキップ"
@@ -268,9 +280,13 @@ sync_repository() {
 
     # 2. main が draft と違うなら、draft の内容を main に写す。
     main_readme="$WORK_DIR/main-readme.md"
-    if fetch_readme "$repo" main "$main_readme" && cmp -s "$desired" "$main_readme"; then
-        log "  main は $draft と一致している: $repo_name"
-        return 0
+    local main_has_readme=false
+    if fetch_readme "$repo" main "$main_readme"; then
+        main_has_readme=true
+        if cmp -s "$desired" "$main_readme"; then
+            log "  main は $draft と一致している: $repo_name"
+            return 0
+        fi
     fi
 
     if ! can_push_to_main "$repo"; then
@@ -284,7 +300,18 @@ sync_repository() {
         return 0
     fi
 
-    sha=$(readme_sha "$repo" main)
+    # SHA が空になる理由は「main に README.md が無い」と「取得に失敗した」の 2 つ
+    # あり、取り違えると既存ファイルに対して作成を試みて 422 になる。main 側の
+    # 取得が成功しているかどうかで存在は分かっているので、ここで区別する。
+    sha=""
+    if [ "$main_has_readme" = true ]; then
+        sha=$(readme_sha "$repo" main)
+        if [ -z "$sha" ]; then
+            error "  main の README.md の SHA を取得できない: $repo_name"
+            return 1
+        fi
+    fi
+
     put_readme "$repo" main "$desired" \
         "docs: mirror README.md from ${draft} onto main" "$sha"
     success "  $draft の README.md を main に写した: $repo_name"
