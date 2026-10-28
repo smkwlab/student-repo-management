@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# README.md の著者情報を draft ブランチから main へ同期する
+# 既存の学生リポジトリの README.md を draft ブランチから main へ流し込む
 #
 # 学生リポジトリの main は、提出時の最終 merge まで draft の内容を受け取らない。
 # 実測では大半のリポジトリで提出時にも受け取っていない（最終 PR が未 merge で
@@ -9,15 +9,21 @@
 # branch すなわち main なので、執筆期間中はテンプレートのプレースホルダが出続ける。
 # 詳しい実測は smkwlab/latex-ecosystem#191 を参照。
 #
+# これは人が必要なときに回す後追いの用具であり、定期実行はしない。新規リポジトリ
+# では作成フローが著者情報を埋めるので、対象になるのはその仕組みより前に作られた
+# 既存リポジトリである。
+#
+# 定期実行にしない理由: 保護された main へ push できる主体を常設することになり、
+# #577 が「Actions がバイパスする必要は無い」として消したレビュー要件のバイパスを
+# 復活させる必要がある。作成時に埋めるならブランチ保護を掛ける前なので、バイパス
+# そのものが要らない。後追いの 1 回だけなら、教員の管理者権限で足りる。
+#
 # 設計
 #   - draft ブランチを README.md の権威とし、main はそれを写すだけにする
-#   - 学生リポジトリ側には何も置かない。秘密を配らずに済み、既存リポジトリへの
-#     workflow 伝播（/propagate）も要らない
-#   - main への push は GitHub App のレビュー要件バイパスで通す。設定するのは
-#     scripts/setup-branch-protection.sh（AUTOMATION_APP_SLUG）で、このスクリプト
-#     は設定の有無を確認するだけで、保護そのものは変更しない
 #   - 著者名のプレースホルダが残っているうちは名簿から埋める。学生が一度でも
 #     書き換えたら、以後そこには触らない
+#   - 保護された main へは管理者権限のトークンで push する。学生リポジトリの保護は
+#     enforce_admins: false なので、管理者は PR を介さずに push できる
 #
 # Usage:
 #   ./sync-author-readme.sh [--dry-run] [<repository_name> ...]
@@ -33,16 +39,11 @@
 #   REGISTRY_REPO       レジストリ（default: <owner>/thesis-student-registry）
 #   ROSTER_REPO         氏名の名簿を持つリポジトリ（default: <owner>/thesis-report）
 #   ROSTER_PATH         名簿のパス（default: <年度>/students.csv）
-#   AUTOMATION_APP_SLUG main のレビュー要件をバイパスできる GitHub App の slug。
-#                       これが設定されていない main へは push できないため、
-#                       そのリポジトリは報告してスキップする
 #
 # 必要な権限:
-#   対象リポジトリへの contents: write、名簿とレジストリへの contents: read、
-#   ブランチ保護の確認に administration: read。
-#   **main を更新するので、AUTOMATION_APP_SLUG の App のトークンで実行すること。**
-#   個人トークンでも main の保護を越えられる場合があるが（管理者は
-#   enforce_admins: false で越えられる）、人の操作と自動化の履歴が混ざるため避ける。
+#   対象リポジトリへの admin（保護された main へ push するため）、名簿とレジストリ
+#   への contents: read、ブランチ保護の確認に administration: read。
+#   教員が gh auth login したトークンで実行することを前提にしている。
 
 set -euo pipefail
 
@@ -150,11 +151,11 @@ latest_draft_branch() {
         | cut -d' ' -f2
 }
 
-# main のレビュー要件をバイパスできる App が設定されているか。
-# 0: push できる（バイパス設定済み、または保護そのものが無い）
+# 保護された main へ、このトークンで push できるか。
+# 0: push できる
 # 1: push できない
 can_push_to_main() {
-    local repo="$1" protection
+    local repo="$1" protection is_admin
 
     if ! protection=$(gh api "repos/${repo}/branches/main/protection" 2>/dev/null); then
         # 保護が無いリポジトリ。レビュー要件も無いので push できる
@@ -162,21 +163,22 @@ can_push_to_main() {
     fi
 
     # 保護があってもレビュー必須でなければ（ステータスチェックのみなど）
-    # バイパスは要らない。バイパスの有無だけで判定すると、そうした保護の
+    # 管理者権限は要らない。レビュー要件の有無を見ずに判定すると、そうした保護の
     # リポジトリを push できないものとして過剰にスキップしてしまう
     if ! printf '%s' "$protection" \
         | jq -e '.required_pull_request_reviews != null' >/dev/null 2>&1; then
         return 0
     fi
 
-    if [ -z "${AUTOMATION_APP_SLUG:-}" ]; then
+    # 学生リポジトリの保護は enforce_admins: false なので、管理者は PR を介さずに
+    # push できる。有効化されている場合は管理者でも越えられない
+    if printf '%s' "$protection" \
+        | jq -e '.enforce_admins.enabled == true' >/dev/null 2>&1; then
         return 1
     fi
 
-    printf '%s' "$protection" \
-        | jq -e --arg slug "$AUTOMATION_APP_SLUG" \
-            '[.required_pull_request_reviews.bypass_pull_request_allowances.apps[]?.slug]
-             | index($slug) != null' >/dev/null 2>&1
+    is_admin=$(gh api "repos/${repo}" --jq '.permissions.admin // false' 2>/dev/null) || return 1
+    [ "$is_admin" = true ]
 }
 
 # README.md をそのブランチから取り出し、blob SHA を FETCHED_SHA に置く。
@@ -282,8 +284,8 @@ sync_repository() {
     # main に書けないことが分かっているなら、何も変えずに止める。draft への補完を
     # 先に走らせると、補完だけ済んで main に届かないという中途半端な状態になる
     if ! can_push_to_main "$repo"; then
-        warn "  main の保護にバイパスが無いため push できない: $repo_name"
-        warn "    scripts/setup-branch-protection.sh --update $repo_name で設定する"
+        warn "  main の保護を越えられないため push できない: $repo_name"
+        warn "    対象リポジトリの管理者権限を持つトークンで実行する"
         return 1
     fi
 
@@ -401,10 +403,6 @@ main() {
             targets+=("$line")
         done <<< "$listed"
         log "対象: レジストリの review_flow が true な ${#targets[@]} リポジトリ"
-    fi
-
-    if [ -z "${AUTOMATION_APP_SLUG:-}" ]; then
-        warn "AUTOMATION_APP_SLUG が未設定です。保護された main へは push できません"
     fi
 
     load_roster
