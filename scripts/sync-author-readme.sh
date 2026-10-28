@@ -200,7 +200,10 @@ fetch_readme() {
     FETCHED_SHA=""
 
     if ! json=$(gh api "repos/${repo}/contents/README.md?ref=${ref}" 2>"$API_ERR"); then
-        if grep -q "HTTP 404" "$API_ERR"; then
+        # gh 2.103.2 の文面は `gh: Not Found (HTTP 404)`。版によって揺れうるので
+        # 「HTTP 404」と「Not Found」のどちらでも拾う。`404` 単体まで緩めると、
+        # 無関係な文面の中の数字に当たって「README.md が無い」と読み違える
+        if grep -Eq "HTTP 404|Not Found" "$API_ERR"; then
             return 1
         fi
         error "  README.md を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
@@ -231,7 +234,12 @@ put_readme() {
     )
     [ -n "$sha" ] && args+=(-f "sha=${sha}")
 
-    gh api "${args[@]}" --jq '.commit.sha' >/dev/null
+    # 失敗の原因（保護・SHA の衝突・権限）は gh の文面にしか出ない。どのリポジトリの
+    # どのブランチで起きたかを添えないと、27 件を回したログから特定できない
+    if ! gh api "${args[@]}" --jq '.commit.sha' >/dev/null 2>"$API_ERR"; then
+        error "  README.md を push できない (${repo}@${branch}): $(tr '\n' ' ' < "$API_ERR")"
+        return 1
+    fi
 }
 
 # プレースホルダを名簿の値で埋める。
