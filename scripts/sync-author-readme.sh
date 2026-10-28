@@ -200,10 +200,12 @@ fetch_readme() {
     FETCHED_SHA=""
 
     if ! json=$(gh api "repos/${repo}/contents/README.md?ref=${ref}" 2>"$API_ERR"); then
-        # gh 2.103.2 の文面は `gh: Not Found (HTTP 404)`。版によって揺れうるので
-        # 「HTTP 404」と「Not Found」のどちらでも拾う。`404` 単体まで緩めると、
-        # 無関係な文面の中の数字に当たって「README.md が無い」と読み違える
-        if grep -Eq "HTTP 404|Not Found" "$API_ERR"; then
+        # gh 2.103.2 の文面は `gh: Not Found (HTTP 404)`。この判定は「HTTP 404」
+        # だけに絞る。緩めると、リポジトリやブランチが無いことによる 404 まで
+        # 「README.md が無い」と読んで**成功として数える**ことになる。逆に gh の
+        # 文面が将来変わった場合は、ここを素通りして「取得に失敗」になり、
+        # 非ゼロ終了して気付ける。読み違えるより騒がしく失敗するほうが良い
+        if grep -q "HTTP 404" "$API_ERR"; then
             return 1
         fi
         error "  README.md を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
@@ -223,6 +225,10 @@ fetch_readme() {
 }
 
 # ファイルを contents API で push する。
+#
+# sha が空のときは SHA を送らない。contents API はこれを新規作成として扱うので、
+# 「そのブランチに README.md が無い」場合の作成経路がこれになる。既存ファイルに
+# 対して空で呼ぶと 422 になるため、呼び出し側は取得の成否で存在を確かめてから渡す。
 put_readme() {
     local repo="$1" branch="$2" file="$3" message="$4" sha="$5"
     local encoded
