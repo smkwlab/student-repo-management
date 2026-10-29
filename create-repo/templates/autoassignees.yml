@@ -11,7 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Assignees and Reviewers to PR
-        uses: kentaro-m/auto-assign-action@v2
+        # このアクションは移動タグを打たないため、@v2 のような浮動参照は
+        # 解決できず、ジョブは起動時に `Unable to resolve action` で落ちる。
+        # 必ず正確なバージョンタグで参照すること。
+        # 学生リポジトリには Renovate も Dependabot も無いので、ここが
+        # 自動で上がることはなく、更新はこのテンプレートを直して配り直す。
+        uses: kentaro-m/auto-assign-action@v2.0.2
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
           configuration-path: ".github/auto_assign_myteams.yml"
