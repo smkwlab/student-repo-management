@@ -22,6 +22,9 @@
 #   - draft ブランチを README.md の権威とし、main はそれを写すだけにする
 #   - 著者名のプレースホルダが残っているうちは名簿から埋める。学生が一度でも
 #     書き換えたら、以後そこには触らない
+#   - 旧テンプレート（sotsuron-template#151 より前）の形は今の形に寄せる。旧い形は
+#     種別と所属が literal な選択肢なので、埋めるだけでは埋まりきらない。詳しくは
+#     lib/author-readme.sh の migrate_legacy_readme を参照
 #   - 保護された main へは管理者権限のトークンで push する。学生リポジトリの保護は
 #     enforce_admins: false なので、管理者は PR を介さずに push できる
 #
@@ -130,6 +133,22 @@ can_push_to_main() {
     [ "$is_admin" = true ]
 }
 
+# draft への push 1 回に載せる文面。
+#
+# テンプレートの形への寄せと著者情報の補完は同じ commit で済むが、どちらを
+# したのかは後から README を見ても分からない。文面で分けておく。
+draft_commit_message() {
+    local migrated="$1" filled="$2"
+
+    if [ "$migrated" = true ] && [ "$filled" = true ]; then
+        echo "docs: update README.md to the current template and fill in the author information"
+    elif [ "$filled" = true ]; then
+        echo "docs: fill in the author information from the lab roster"
+    else
+        echo "docs: bring README.md in line with the current template"
+    fi
+}
+
 sync_repository() {
     local repo_name="$1"
     local repo="${OWNER}/${repo_name}"
@@ -164,34 +183,32 @@ sync_repository() {
             ;;
     esac
 
-    # 1. 氏名のプレースホルダが残っているなら名簿から埋め、draft に push する。
-    #    draft を権威とする設計なので、補完も draft 側へ行う。
-    if grep -q '（氏名）' "$desired"; then
+    # 1. 旧テンプレートの形を今の形に寄せ、プレースホルダが残っていれば名簿から
+    #    埋めて、draft に push する。draft を権威とする設計なので、どちらも
+    #    draft 側へ行う。
+    local work="$WORK_DIR/draft-work.md"
+    local migrated=false author_filled=false
+
+    if ! migrate_legacy_readme "$desired" "$work"; then
+        error "  README.md を今のテンプレートの形に寄せられない: $repo_name"
+        return 1
+    fi
+    cmp -s "$desired" "$work" || migrated=true
+
+    # 氏名だけを見てはいけない。旧テンプレートの選択肢は寄せた結果（種別）
+    # （所属）になるので、氏名を自分で書いた学生のリポジトリでは、氏名が
+    # 無いという理由でそれらが置換されずに残ってしまう
+    if grep -qE '（氏名）|（k00rs000）|（種別）|（所属）|（20XX）' "$work"; then
         values_status=0
         author_readme_values "$repo_name" || values_status=$?
 
         if [ "$values_status" = 0 ]; then
             local filled="$WORK_DIR/filled-readme.md"
-            if ! fill_placeholders "$desired" "$filled"; then
+            if ! fill_placeholders "$work" "$filled"; then
                 return 1
             fi
-
-            if [ "$DRY_RUN" = true ]; then
-                log "  [dry-run] $draft の著者情報を名簿から補完する"
-            else
-                # 内容と同じ応答から取った SHA を渡す。学生がこの数秒の間に
-                # draft へ push していた場合、PUT は 409 で失敗する。学生の
-                # commit を上書きするより、失敗して次回に回すほうが良い
-                put_readme "$repo" "$draft" "$filled" \
-                    "docs: fill in the author information from the lab roster" \
-                    "$draft_sha"
-                success "  $draft の著者情報を名簿から補完した"
-            fi
-
-            # dry-run でも採用する。この後の main との比較を、実行したときと同じ
-            # 内容で行うため。ここで分けると dry-run だけ「main と一致」と報告して
-            # しまい、実行結果を予告できなくなる
-            mv "$filled" "$desired"
+            cmp -s "$work" "$filled" || author_filled=true
+            mv "$filled" "$work"
         elif [ "$values_status" = 1 ]; then
             log "  リポジトリ名から学籍番号を取り出せないため補完をスキップ: $repo_name"
         elif [ "$values_status" = 2 ]; then
@@ -199,6 +216,36 @@ sync_repository() {
         else
             log "  名簿に ${AR_STUDENT_ID} の行が無いため著者情報の補完をスキップ"
         fi
+    fi
+
+    if [ "$migrated" = true ] || [ "$author_filled" = true ]; then
+        if [ "$DRY_RUN" = true ]; then
+            if [ "$migrated" = true ]; then
+                log "  [dry-run] $draft の README.md を今のテンプレートの形に寄せる"
+            fi
+            if [ "$author_filled" = true ]; then
+                log "  [dry-run] $draft の著者情報を名簿から補完する"
+            fi
+        else
+            # 内容と同じ応答から取った SHA を渡す。学生がこの数秒の間に
+            # draft へ push していた場合、PUT は 409 で失敗する。学生の
+            # commit を上書きするより、失敗して次回に回すほうが良い
+            if ! put_readme "$repo" "$draft" "$work" \
+                "$(draft_commit_message "$migrated" "$author_filled")" "$draft_sha"; then
+                return 1
+            fi
+            if [ "$migrated" = true ]; then
+                success "  $draft の README.md を今のテンプレートの形に寄せた"
+            fi
+            if [ "$author_filled" = true ]; then
+                success "  $draft の著者情報を名簿から補完した"
+            fi
+        fi
+
+        # dry-run でも採用する。この後の main との比較を、実行したときと同じ
+        # 内容で行うため。ここで分けると dry-run だけ「main と一致」と報告して
+        # しまい、実行結果を予告できなくなる
+        mv "$work" "$desired"
     fi
 
     # 2. main が draft と違うなら、draft の内容を main に写す。
@@ -227,8 +274,10 @@ sync_repository() {
         return 0
     fi
 
-    put_readme "$repo" main "$desired" \
-        "docs: mirror README.md from ${draft} onto main" "$main_sha"
+    if ! put_readme "$repo" main "$desired" \
+        "docs: mirror README.md from ${draft} onto main" "$main_sha"; then
+        return 1
+    fi
     success "  $draft の README.md を main に写した: $repo_name"
 }
 

@@ -131,7 +131,10 @@ INDIVIDUAL_MODE=true bash <(curl -fsSL https://repo-setup.smkwlab.net) latex
   - 学生リポジトリの main は提出時の最終 merge まで draft の内容を受け取らないため、
     README が掲げる「トップページに表示されます」が執筆期間中は成り立たない
     （[latex-ecosystem#191](https://github.com/smkwlab/latex-ecosystem/issues/191)）
-  - 氏名のプレースホルダが残っているうちは名簿（thesis-report）から補完する
+  - プレースホルダが残っているうちは名簿（thesis-report）から補完する
+  - 旧テンプレート（[sotsuron-template#151](https://github.com/smkwlab/sotsuron-template/pull/151)
+    より前）の形は今の形に寄せる。旧い形は種別と所属が「A / B」という選択肢で、
+    学生が片方を消す前提だったため、埋めるだけでは埋まりきらない
   - 作成フローが入る前に作られた既存リポジトリが対象。定期実行はしない
     （保護された main へ push できる主体を常設せずに済ませるため）
   - 保護された main へ push するので、対象リポジトリの管理者権限が必要
