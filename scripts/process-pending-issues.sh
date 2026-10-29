@@ -58,6 +58,11 @@ resolve_registry_repo() {
     REGISTRY_REPO="${DEPLOY_ORG}/${REGISTRY_REPO_NAME}"
 }
 
+# 著者 README を記入できたか。fill_author_readme が設定し、
+# print_author_readme_operation が読む。既定を false にしておくのは、記入の前に
+# 一覧を出す経路ができたときに「記入した」と嘘をつかないため
+AUTHOR_README_FILLED=false
+
 # モード設定
 INTERACTIVE_MODE=false
 DRY_RUN_MODE=false
@@ -1354,12 +1359,67 @@ execute_repository_delete() {
 }
 
 #
+# 著者 README の記入
+#
+# テンプレートの README.md は著者情報をプレースホルダで持つ。学生に書かせると
+# draft サイクルのリポジトリでは main に届かないため（smkwlab/latex-ecosystem#191）、
+# 作成直後のここで埋める。
+#
+# **ブランチ保護を掛ける前に呼ぶこと。** 保護後に main へ書くには、#577 が
+# 「Actions がバイパスする必要は無い」として消したレビュー要件のバイパスを
+# 復活させる必要がある。保護前なら、その概念自体が登場しない。
+#
+# 失敗しても処理は続け、警告だけ出す。著者情報が入らないのは README の見た目の
+# 問題で、ブランチ保護とレジストリ登録のほうが重い。入らなかったリポジトリは
+# 後から scripts/sync-author-readme.sh で埋められる。
+#
+fill_author_readme() {
+    local script="$SCRIPT_DIR/fill-author-readme.sh"
+    local ok=true
+
+    echo "  README.md に著者情報を記入中..."
+    # --dry-run の有無で呼び分ける。配列で引数を組むと、空のときの展開が
+    # bash のバージョンで揺れる
+    if [ "$DRY_RUN_MODE" = true ]; then
+        REPO_OWNER="$DEPLOY_ORG" "$script" --dry-run "$CURRENT_REPO_NAME" || ok=false
+    else
+        REPO_OWNER="$DEPLOY_ORG" "$script" "$CURRENT_REPO_NAME" || ok=false
+    fi
+
+    if [ "$ok" = true ]; then
+        echo "  ✅ 著者情報の記入完了"
+        AUTHOR_README_FILLED=true
+    else
+        echo "  ⚠️  著者情報を記入できませんでした"
+        echo "     後から ./scripts/sync-author-readme.sh ${CURRENT_REPO_NAME} で埋められます"
+        AUTHOR_README_FILLED=false
+    fi
+}
+
+#
+# 「実行された操作」の一覧に出す行。
+#
+# 記入は失敗しても処理を止めないので、成功した体で一覧に並べると、ログを
+# 遡らないと埋まっていないことに気付けない。
+#
+print_author_readme_operation() {
+    if [ "$AUTHOR_README_FILLED" = true ]; then
+        echo "  • README.md への著者情報の記入"
+    else
+        echo "  • README.md への著者情報の記入（失敗・後追いが必要）"
+    fi
+}
+
+#
 # 週報リポジトリ処理（詳細フィードバック付き）
 #
 process_weekly_report_with_feedback() {
     echo "  📝 週報リポジトリの処理を開始..."
     
-    # 1. thesis-student-registry 更新
+    # 1. 著者 README の記入
+    fill_author_readme
+    
+    # 2. thesis-student-registry 更新
     echo "  thesis-student-registry への登録中..."
     if update_thesis_student_registry "$CURRENT_REPO_NAME" "$CURRENT_STUDENT_ID" "wr"; then
         echo "  ✅ thesis-student-registry への登録完了"
@@ -1369,7 +1429,7 @@ process_weekly_report_with_feedback() {
     fi
     
     
-    # 2. Issue クローズ
+    # 3. Issue クローズ
     echo "  Issue クローズ中..."
     if close_issue_with_comment "$CURRENT_ISSUE_NUMBER" "✅ 週報リポジトリの登録が完了しました
 
@@ -1395,7 +1455,10 @@ process_thesis_with_feedback() {
     echo "  📚 論文リポジトリの処理を開始..."
     echo ""
     
-    # 1. ブランチ保護設定
+    # 1. 著者 README の記入
+    fill_author_readme
+    
+    # 2. ブランチ保護設定
     echo "  ブランチ保護設定を適用中..."
     if REPO_OWNER="$DEPLOY_ORG" REGISTRY_OWNER="${REGISTRY_REPO%%/*}" "$SCRIPT_DIR/setup-branch-protection.sh" "${DEPLOY_ORG}/${CURRENT_REPO_NAME}"; then
         echo "  ✅ ブランチ保護設定完了"
@@ -1404,7 +1467,7 @@ process_thesis_with_feedback() {
         return 1
     fi
     
-    # 2. thesis-student-registry 更新
+    # 3. thesis-student-registry 更新
     echo "  thesis-student-registry への登録中..."
     if update_thesis_student_registry "$CURRENT_REPO_NAME" "$CURRENT_STUDENT_ID" "$CURRENT_REPO_TYPE"; then
         echo "  ✅ thesis-student-registry への登録完了"
@@ -1413,7 +1476,7 @@ process_thesis_with_feedback() {
         return 1
     fi
     
-    # 3. Issue クローズ
+    # 4. Issue クローズ
     echo "  Issue クローズ中..."
     if close_issue_with_comment "$CURRENT_ISSUE_NUMBER" "✅ 論文リポジトリの設定が完了しました
 
@@ -1438,6 +1501,7 @@ process_thesis_with_feedback() {
     
     echo ""
     echo "📋 実行された操作:"
+    print_author_readme_operation
     echo "  • ブランチ保護設定 (main)"
     echo "  • thesis-student-registry への登録"
     echo "  • Issue #$CURRENT_ISSUE_NUMBER のクローズ"
@@ -1453,7 +1517,10 @@ process_ise_with_feedback() {
     echo "  📝 情報科学演習レポートの処理を開始..."
     echo ""
     
-    # 1. ブランチ保護設定（PR学習目的）
+    # 1. 著者 README の記入
+    fill_author_readme
+    
+    # 2. ブランチ保護設定（PR学習目的）
     echo "  ブランチ保護設定を適用中..."
     if REPO_OWNER="$DEPLOY_ORG" REGISTRY_OWNER="${REGISTRY_REPO%%/*}" "$SCRIPT_DIR/setup-branch-protection.sh" "${DEPLOY_ORG}/${CURRENT_REPO_NAME}"; then
         echo "  ✅ ブランチ保護設定完了"
@@ -1462,7 +1529,7 @@ process_ise_with_feedback() {
         return 1
     fi
     
-    # 2. thesis-student-registry 更新
+    # 3. thesis-student-registry 更新
     echo "  thesis-student-registry への登録中..."
     if update_thesis_student_registry "$CURRENT_REPO_NAME" "$CURRENT_STUDENT_ID" "$CURRENT_REPO_TYPE"; then
         echo "  ✅ thesis-student-registry への登録完了"
@@ -1471,7 +1538,7 @@ process_ise_with_feedback() {
         return 1
     fi
     
-    # 3. Issue クローズ
+    # 4. Issue クローズ
     echo "  Issue クローズ中..."
     if close_issue_with_comment "$CURRENT_ISSUE_NUMBER" "✅ 情報科学演習レポートの設定が完了しました
 
@@ -1501,6 +1568,7 @@ process_ise_with_feedback() {
     
     echo ""
     echo "📋 実行された操作:"
+    print_author_readme_operation
     echo "  • ブランチ保護設定 (main)"
     echo "  • thesis-student-registry への登録"
     echo "  • Issue #$CURRENT_ISSUE_NUMBER のクローズ"
@@ -1518,7 +1586,10 @@ process_poster_with_feedback() {
     echo "  📊 学会ポスターリポジトリの処理を開始..."
     echo ""
 
-    # 1. ブランチ保護設定（draft PR レビュー用）
+    # 1. 著者 README の記入
+    fill_author_readme
+
+    # 2. ブランチ保護設定（draft PR レビュー用）
     echo "  ブランチ保護設定を適用中..."
     if REPO_OWNER="$DEPLOY_ORG" REGISTRY_OWNER="${REGISTRY_REPO%%/*}" "$SCRIPT_DIR/setup-branch-protection.sh" "${DEPLOY_ORG}/${CURRENT_REPO_NAME}"; then
         echo "  ✅ ブランチ保護設定完了"
@@ -1527,7 +1598,7 @@ process_poster_with_feedback() {
         return 1
     fi
 
-    # 2. thesis-student-registry 更新
+    # 3. thesis-student-registry 更新
     echo "  thesis-student-registry への登録中..."
     if update_thesis_student_registry "$CURRENT_REPO_NAME" "$CURRENT_STUDENT_ID" "$CURRENT_REPO_TYPE"; then
         echo "  ✅ thesis-student-registry への登録完了"
@@ -1536,7 +1607,7 @@ process_poster_with_feedback() {
         return 1
     fi
 
-    # 3. Issue クローズ
+    # 4. Issue クローズ
     echo "  Issue クローズ中..."
     if close_issue_with_comment "$CURRENT_ISSUE_NUMBER" "✅ 学会ポスターリポジトリの設定が完了しました
 
@@ -1566,6 +1637,7 @@ process_poster_with_feedback() {
 
     echo ""
     echo "📋 実行された操作:"
+    print_author_readme_operation
     echo "  • ブランチ保護設定 (main)"
     echo "  • thesis-student-registry への登録"
     echo "  • Issue #$CURRENT_ISSUE_NUMBER のクローズ"
@@ -1598,7 +1670,10 @@ process_latex_review_with_feedback() {
     echo "  📄 汎用LaTeXリポジトリ（レビューフロー有効）の処理を開始..."
     echo ""
 
-    # 1. ブランチ保護設定（draft PR レビュー用）
+    # 1. 著者 README の記入
+    fill_author_readme
+
+    # 2. ブランチ保護設定（draft PR レビュー用）
     echo "  ブランチ保護設定を適用中..."
     if REPO_OWNER="$DEPLOY_ORG" REGISTRY_OWNER="${REGISTRY_REPO%%/*}" "$SCRIPT_DIR/setup-branch-protection.sh" "${DEPLOY_ORG}/${CURRENT_REPO_NAME}"; then
         echo "  ✅ ブランチ保護設定完了"
@@ -1607,7 +1682,7 @@ process_latex_review_with_feedback() {
         return 1
     fi
 
-    # 2. thesis-student-registry 更新
+    # 3. thesis-student-registry 更新
     echo "  thesis-student-registry への登録中..."
     if update_thesis_student_registry "$CURRENT_REPO_NAME" "$CURRENT_STUDENT_ID" "$CURRENT_REPO_TYPE"; then
         echo "  ✅ thesis-student-registry への登録完了"
@@ -1616,7 +1691,7 @@ process_latex_review_with_feedback() {
         return 1
     fi
 
-    # 3. Issue クローズ
+    # 4. Issue クローズ
     echo "  Issue クローズ中..."
     if close_issue_with_comment "$CURRENT_ISSUE_NUMBER" "✅ 汎用LaTeXリポジトリ（レビューフロー有効）の設定が完了しました
 
@@ -1646,6 +1721,7 @@ process_latex_review_with_feedback() {
 
     echo ""
     echo "📋 実行された操作:"
+    print_author_readme_operation
     echo "  • ブランチ保護設定 (main)"
     echo "  • thesis-student-registry への登録"
     echo "  • Issue #$CURRENT_ISSUE_NUMBER のクローズ"
@@ -1661,7 +1737,10 @@ process_latex_with_feedback() {
     echo "  📄 汎用LaTeXリポジトリの登録処理を開始..."
     echo ""
     
-    # 1. thesis-student-registry 更新（ブランチ保護なし）
+    # 1. 著者 README の記入
+    fill_author_readme
+    
+    # 2. thesis-student-registry 更新（ブランチ保護なし）
     echo "  thesis-student-registry への登録中..."
     if update_thesis_student_registry "$CURRENT_REPO_NAME" "$CURRENT_STUDENT_ID" "$CURRENT_REPO_TYPE"; then
         echo "  ✅ thesis-student-registry への登録完了"
@@ -1671,7 +1750,7 @@ process_latex_with_feedback() {
     fi
     
     
-    # 2. Issue クローズ
+    # 3. Issue クローズ
     echo "  Issue クローズ中..."
     if close_issue_with_comment "$CURRENT_ISSUE_NUMBER" "✅ 汎用LaTeXリポジトリの登録が完了しました
 
@@ -1699,6 +1778,7 @@ process_latex_with_feedback() {
     
     echo ""
     echo "📋 実行された操作:"
+    print_author_readme_operation
     echo "  • thesis-student-registry への登録"
     echo "  • Issue #$CURRENT_ISSUE_NUMBER のクローズ"
     echo ""

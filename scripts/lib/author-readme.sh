@@ -1,0 +1,275 @@
+# shellcheck shell=bash
+#
+# 著者 README（学生リポジトリのトップページに出る README.md）を扱う共通部分
+#
+# 作成時に埋める fill-author-readme.sh と、既存リポジトリを後追いで埋める
+# sync-author-readme.sh が source する。名簿の引き方とプレースホルダの置換は
+# 両方で同じでなければならない（違うと同じリポジトリを 2 回処理したときに
+# 内容が揺れる）ので、実装を 1 つに寄せている。
+#
+# source する側に要求するもの:
+#   - error() / log() / warn() を定義しておくこと（この単位はログの体裁を持たない）
+#   - API_ERR に gh の stderr の置き場（書き込めるパス）を入れておくこと
+#   - ROSTER_FILE に名簿の置き場を入れておくこと
+#   - ROSTER_REPO（と任意で ROSTER_PATH）を設定しておくこと
+#
+# 変数の名前を呼び出し側と共有しているのは、どちらのスクリプトも 1 プロセスで
+# 完結する用具であり、引数で引き回すより取り違えが起きにくいためである。
+
+# 直近の fetch_readme が取った README.md の blob SHA。成功時のみ設定される。
+# shellcheck disable=SC2034  # source 元が put_readme に渡すために読む
+FETCHED_SHA=""
+
+ROSTER_AVAILABLE=false
+
+# 名簿から引いた、または学籍番号から決まる値。author_readme_values が設定する。
+AR_NAME=""
+AR_STUDENT_ID=""
+AR_KIND=""
+AR_AFFILIATION=""
+AR_YEAR=""
+
+UNDERGRADUATE_AFFILIATION="九州産業大学理工学部情報科学科"
+GRADUATE_AFFILIATION="九州産業大学大学院情報科学研究科"
+
+# 年度（4月〜3月）。thesis-report の collect-progress.sh と同じ計算にそろえる。
+# ずれると名簿を引く年度が変わり、氏名が引けなくなる。
+fiscal_year() {
+    local month year
+    month=$(TZ='Asia/Tokyo' date +%-m)
+    year=$(TZ='Asia/Tokyo' date +%Y)
+    if [ "$month" -ge 4 ]; then
+        echo "$year"
+    else
+        echo $((year - 1))
+    fi
+}
+
+# 名簿を取得する。無くても呼び出し側の処理は続けられる（氏名の補完だけが効かない）。
+load_roster() {
+    local path="${ROSTER_PATH:-$(fiscal_year)/students.csv}"
+
+    if gh api "repos/${ROSTER_REPO}/contents/${path}" \
+        -H "Accept: application/vnd.github.raw" > "$ROSTER_FILE" 2>/dev/null; then
+        ROSTER_AVAILABLE=true
+        log "名簿: ${ROSTER_REPO}/${path}（$(wc -l < "$ROSTER_FILE" | tr -d ' ') 行）"
+    else
+        warn "名簿を取得できません: ${ROSTER_REPO}/${path}"
+        warn "氏名の補完はスキップします"
+    fi
+}
+
+# 学籍番号から氏名を引く。
+#
+# 名簿は学部の学籍番号と大学院の学籍番号を別の列に持つ。大学院生の行は学部の
+# 学籍番号も併せ持つため、リポジトリ名から引くときは課程に応じて見る列を変える
+# 必要がある。この規則は thesis-report の collect-progress.sh と同じ。
+#   - 学部（rs / jk）: 3 列目
+#   - 大学院（gjk）  : 2 列目
+# 氏名は 4 列目。先頭の 'k' を落として大文字化した形で突き合わせる。
+lookup_author() {
+    local student_id="$1" normalized column
+
+    # 契約: 引けたら氏名を標準出力に書き、引けなければ何も書かない。名簿が無い
+    # 場合も「引けなかった」と同じ扱いにする（呼び出し側は空かどうかだけを見る）。
+    [ "$ROSTER_AVAILABLE" = true ] || return 0
+
+    normalized=$(printf '%s' "$student_id" | sed 's/^[kK]//' | tr '[:lower:]' '[:upper:]')
+    case "$normalized" in
+        *GJK*) column=2 ;;
+        *)     column=3 ;;
+    esac
+
+    awk -F',' -v id="$normalized" -v c="$column" \
+        '$c == id { gsub(/"/, "", $4); print $4; exit }' "$ROSTER_FILE"
+}
+
+# 学籍番号から所属を決める。学科コードは rs / jk が学部、gjk が大学院。
+# jk は 2016 年入学までの学部生で、いま在籍していないが、過去のリポジトリを
+# 後追いで埋める場合に出てくる。
+affiliation_for() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        *gjk*) echo "$GRADUATE_AFFILIATION" ;;
+        *)     echo "$UNDERGRADUATE_AFFILIATION" ;;
+    esac
+}
+
+# リポジトリ名と学籍番号から種別を決める。
+#
+# 種別のプレースホルダ（（種別））を持つのは sotsuron-template と
+# ise-report-template だけで、残り 4 つのテンプレートは種別が固定文字列である。
+# 決められない場合は空を返し、呼び出し側は（種別）を置換しない。置換しなければ
+# プレースホルダがそのまま残るので、埋め損ねたことが README を見れば分かる。
+#
+# 卒論と修論の区別は**リポジトリ名の接尾辞ではなく学籍番号で**付ける。接尾辞は
+# どのテンプレートから作られたかの判定にだけ使う。接尾辞で区別すると、所属が
+# 学籍番号から決まるのに対して種別が別の情報源から決まることになり、2 つが
+# 食い違う余地が残る（poster と latex のリポジトリ名は
+# ${STUDENT_ID}-${POSTER_NAME} / ${STUDENT_ID}-${DOCUMENT_NAME} で、名前の
+# 部分は自由入力なので `-master` も付けられる）。
+# リポジトリ名を決めている determine_thesis_type も学籍番号を見ているので、
+# 学籍番号に寄せれば情報源が 1 つになる。
+kind_for() {
+    local repo_name="$1" student_id="$2"
+
+    case "$repo_name" in
+        *-sotsuron|*-master|*-thesis)
+            case "$(printf '%s' "$student_id" | tr '[:upper:]' '[:lower:]')" in
+                *gjk*) echo "修士論文" ;;
+                *)     echo "卒業論文" ;;
+            esac
+            ;;
+        *-ise-report1) echo "情報科学演習 I レポート" ;;
+        *-ise-report2) echo "情報科学演習 II レポート" ;;
+        *)             echo "" ;;
+    esac
+}
+
+# リポジトリ名の先頭が学籍番号ならそれを書き出す。そうでなければ何も書かない。
+#
+# 個人モード（INDIVIDUAL_MODE=true）で作られたリポジトリは学籍番号を名前に
+# 持たず、名簿にも載らない。呼び出し側はここが空かどうかで、埋める対象かを
+# API を叩く前に判定できる。
+student_id_from_repo_name() {
+    case "$1" in
+        k[0-9][0-9]*-*) printf '%s' "${1%%-*}" ;;
+    esac
+}
+
+# リポジトリ名から、そのリポジトリに書くべき著者情報を決めて AR_* に入れる。
+#
+# 学籍番号はリポジトリ名の先頭部分をそのまま使う（例: k23rs017）。README の
+# プレースホルダ側も `k` 付きの小文字なので形式が揃う。lookup_author が `k` を
+# 落として大文字化するのは名簿の列に合わせるためだけで、README に書く表記とは
+# 別物である。
+#
+# 0: 埋めるべき値がそろった
+# 1: 学籍番号を取り出せない（個人モードで作られたリポジトリなど）
+# 2: 名簿に行が無く氏名が引けない
+author_readme_values() {
+    local repo_name="$1"
+
+    AR_NAME=""; AR_STUDENT_ID=""; AR_KIND=""; AR_AFFILIATION=""; AR_YEAR=""
+
+    AR_STUDENT_ID=$(student_id_from_repo_name "$repo_name")
+    [ -n "$AR_STUDENT_ID" ] || return 1
+
+    AR_NAME=$(lookup_author "$AR_STUDENT_ID")
+    [ -n "$AR_NAME" ] || return 2
+
+    AR_KIND=$(kind_for "$repo_name" "$AR_STUDENT_ID")
+    AR_AFFILIATION=$(affiliation_for "$AR_STUDENT_ID")
+    AR_YEAR=$(fiscal_year)
+}
+
+# README.md をそのブランチから取り出し、blob SHA を FETCHED_SHA に置く。
+#
+# 内容と SHA を 1 回の呼び出しで取るのが要点である。別々に取ると、その間に
+# push された場合に「新しい SHA + 古い内容」で上書きすることになり、学生の
+# commit を失う。同じ応答から取った SHA を使えば、ブランチが動いていた場合は
+# PUT が 409 で失敗する。取り違えて上書きするより、失敗するほうが良い。
+#
+# 「無い」と「取得できなかった」は呼び出し側が区別できるように返り値を分ける。
+# ひとまとめにすると、一時的な 5xx や認証の失敗が「README.md が無い」と読めて
+# しまい、黙ってスキップされる。
+#   0: 取得できた（FETCHED_SHA にその時点の SHA が入る）
+#   1: そのブランチに README.md が無い（404）
+#   2: 取得に失敗した（それ以外）
+fetch_readme() {
+    local repo="$1" ref="$2" out="$3" json
+
+    FETCHED_SHA=""
+
+    if ! json=$(gh api "repos/${repo}/contents/README.md?ref=${ref}" 2>"$API_ERR"); then
+        # gh 2.103.2 の文面は `gh: Not Found (HTTP 404)`。この判定は「HTTP 404」
+        # だけに絞る。緩めると、リポジトリやブランチが無いことによる 404 まで
+        # 「README.md が無い」と読んで**成功として数える**ことになる。逆に gh の
+        # 文面が将来変わった場合は、ここを素通りして「取得に失敗」になり、
+        # 非ゼロ終了して気付ける。読み違えるより騒がしく失敗するほうが良い
+        if grep -q "HTTP 404" "$API_ERR"; then
+            return 1
+        fi
+        error "  README.md を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
+        return 2
+    fi
+
+    FETCHED_SHA=$(printf '%s' "$json" | jq -r '.sha')
+
+    # content は base64 で、改行を挟んで返る。復号に openssl を使うのは
+    # base64(1) の復号オプションが環境で揺れるため（GNU は -d、BSD は -D）。
+    #
+    # -A は外せない。openssl base64 -d は -A が無いと入力が 64 文字で折り返されて
+    # いる前提で読むので、tr -d '\n' で 1 行にしたものを渡すと **何も出さずに
+    # 成功する**（空の README.md を push することになる）。tr で 1 行に
+    # しているからこそ -A が要るという関係で、どちらも冗長ではない。
+    printf '%s' "$json" | jq -r '.content' | tr -d '\n' | openssl base64 -d -A > "$out"
+}
+
+# ファイルを contents API で push する。
+#
+# sha が空のときは SHA を送らない。contents API はこれを新規作成として扱うので、
+# 「そのブランチに README.md が無い」場合の作成経路がこれになる。既存ファイルに
+# 対して空で呼ぶと 422 になるため、呼び出し側は取得の成否で存在を確かめてから渡す。
+put_readme() {
+    local repo="$1" branch="$2" file="$3" message="$4" sha="$5"
+    local encoded
+
+    # base64 の折り返し指定は環境差がある（GNU の -w0 は macOS に無い）ため、
+    # 改行を後から落とす形にそろえる。
+    encoded=$(base64 < "$file" | tr -d '\n')
+
+    local args=(
+        -X PUT "repos/${repo}/contents/README.md"
+        -f "message=${message}"
+        -f "content=${encoded}"
+        -f "branch=${branch}"
+    )
+    [ -n "$sha" ] && args+=(-f "sha=${sha}")
+
+    # 失敗の原因（保護・SHA の衝突・権限）は gh の文面にしか出ない。どのリポジトリの
+    # どのブランチで起きたかを添えないと、まとめて回したログから特定できない
+    if ! gh api "${args[@]}" --jq '.commit.sha' >/dev/null 2>"$API_ERR"; then
+        error "  README.md を push できない (${repo}@${branch}): $(tr '\n' ' ' < "$API_ERR")"
+        return 1
+    fi
+}
+
+# AR_* の値でプレースホルダを埋める。
+#
+# 値が空のプレースホルダは置換しない。種別は 2 つのテンプレートにしか無く、
+# 決められないこともあるので、空で上書きして欄を消すより、プレースホルダを
+# 残して埋め損ねを見えるようにする。
+#
+# gsub も split も使わない。どちらも正規表現を経由するため、置換の両側で
+# 文字列が解釈される。
+#   - gsub の置換文字列では & が「一致した文字列」を意味し、-v の代入でも
+#     エスケープが一段消えるので、& を含む氏名が二重に壊れる
+#     （"A & B" が "A （氏名） B" になる）。実際に踏んで直した
+#   - split の第 3 引数は正規表現として解釈される。現在のプレースホルダは
+#     全角括弧なので実害は無いが、ASCII のメタ文字を含む形に変えた途端に壊れる
+# index と substr で回せば、from 側も to 側も解釈が入らない。
+fill_placeholders() {
+    local in="$1" out="$2"
+
+    awk -v name="$AR_NAME" -v id="$AR_STUDENT_ID" -v kind="$AR_KIND" \
+        -v affiliation="$AR_AFFILIATION" -v year="$AR_YEAR" '
+        function replace(s, from, to,    out, pos, flen) {
+            if (to == "") return s
+            out = ""
+            flen = length(from)
+            while ((pos = index(s, from)) > 0) {
+                out = out substr(s, 1, pos - 1) to
+                s = substr(s, pos + flen)
+            }
+            return out s
+        }
+        {
+            line = replace($0, "（氏名）", name)
+            line = replace(line, "（k00rs000）", id)
+            line = replace(line, "（種別）", kind)
+            line = replace(line, "（所属）", affiliation)
+            line = replace(line, "（20XX）", year)
+            print line
+        }
+    ' "$in" > "$out"
+}

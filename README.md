@@ -116,15 +116,27 @@ INDIVIDUAL_MODE=true bash <(curl -fsSL https://repo-setup.smkwlab.net) latex
   - main ブランチの誤操作防止
   - 管理者は保護を回避可能（`enforce_admins: false`。教員の緊急対応用）
 
+- **[fill-author-readme.sh](scripts/fill-author-readme.sh)**: 作成直後のリポジトリの
+  README.md に著者情報を書き込む（`process-pending-issues.sh` が自動で呼ぶ）
+  - 書き込むのは氏名・学籍番号・種別・所属・年度で、すべて学籍番号と作成日から
+    決まる。学生が入力するものは無い
+  - main と `0th-draft` の両方に書く。main だけでは提出時の最終 merge で
+    プレースホルダに戻り、`0th-draft` だけでは main に届かない
+  - **ブランチ保護を掛ける前に実行する。** 保護後に main へ書くには
+    [#577](https://github.com/smkwlab/student-repo-management/issues/577) が消した
+    レビュー要件のバイパスが必要になる
+
 - **[sync-author-readme.sh](scripts/sync-author-readme.sh)**: 既存リポジトリの
   README.md を draft ブランチから main へ流し込む（教員が必要なときに手で実行）
   - 学生リポジトリの main は提出時の最終 merge まで draft の内容を受け取らないため、
     README が掲げる「トップページに表示されます」が執筆期間中は成り立たない
     （[latex-ecosystem#191](https://github.com/smkwlab/latex-ecosystem/issues/191)）
   - 氏名のプレースホルダが残っているうちは名簿（thesis-report）から補完する
-  - 新規リポジトリは作成フローが著者情報を埋めるため対象外。定期実行はしない
+  - 作成フローが入る前に作られた既存リポジトリが対象。定期実行はしない
     （保護された main へ push できる主体を常設せずに済ませるため）
   - 保護された main へ push するので、対象リポジトリの管理者権限が必要
+  - 名簿の引き方とプレースホルダの置換は `fill-author-readme.sh` と共通
+    （[lib/author-readme.sh](scripts/lib/author-readme.sh)）
 
 ### `create-repo/` - リポジトリ作成ツール
 
