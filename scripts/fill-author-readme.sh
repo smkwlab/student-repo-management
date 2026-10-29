@@ -160,7 +160,7 @@ fill_branch() {
 
     ensure_values || return 1
 
-    fill_placeholders "$current" "$filled"
+    fill_placeholders "$current" "$filled" || return 1
 
     if [ "$DRY_RUN" = true ]; then
         log "  [dry-run] $branch に書き込む内容:"

@@ -289,6 +289,14 @@ put_readme() {
 fill_placeholders() {
     local in="$1" out="$2"
 
+    # author_readme_values を先に呼ぶ契約を、呼ばれなかったときに黙って
+    # 空文字で置換しないよう確かめる。学籍番号は必ず入る（氏名が引けなくても
+    # author_readme_values が設定する）ので、ここを番兵にできる
+    if [ -z "$AR_STUDENT_ID" ]; then
+        error "  author_readme_values を先に呼ぶこと（著者情報が未設定）"
+        return 1
+    fi
+
     awk -v name="$AR_NAME" -v id="$AR_STUDENT_ID" -v kind="$AR_KIND" \
         -v affiliation="$AR_AFFILIATION" -v year="$AR_YEAR" '
         # to が空なら s を変更せずに返す（プレースホルダを残す）。

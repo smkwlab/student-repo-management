@@ -172,7 +172,9 @@ sync_repository() {
 
         if [ "$values_status" = 0 ]; then
             local filled="$WORK_DIR/filled-readme.md"
-            fill_placeholders "$desired" "$filled"
+            if ! fill_placeholders "$desired" "$filled"; then
+                return 1
+            fi
 
             if [ "$DRY_RUN" = true ]; then
                 log "  [dry-run] $draft の著者情報を名簿から補完する"
