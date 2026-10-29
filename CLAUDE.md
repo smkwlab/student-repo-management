@@ -82,6 +82,9 @@ create-repo/
 scripts/
 ├── setup-branch-protection.sh    # Branch protection for individual student
 ├── process-pending-issues.sh     # Batch processing of pending repository requests
+├── fill-author-readme.sh         # Author information into a new repository's README (run before branch protection)
+├── sync-author-readme.sh         # Backfill the author README onto main for pre-existing repositories
+├── lib/author-readme.sh          # Roster lookup and placeholder substitution, shared by the two above
 └── validate-yaml.sh              # YAML/GitHub Actions validation
 
 ## Data Management Integration

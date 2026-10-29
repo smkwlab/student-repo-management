@@ -14,9 +14,9 @@
 # 既存リポジトリである。
 #
 # 定期実行にしない理由: 保護された main へ push できる主体を常設することになり、
-# #577 が「Actions がバイパスする必要は無い」として消したレビュー要件のバイパスを
-# 復活させる必要がある。作成時に埋めるならブランチ保護を掛ける前なので、バイパス
-# そのものが要らない。後追いの 1 回だけなら、教員の管理者権限で足りる。
+# #577 で「Actions がバイパスする必要は無い」と結論して #578 が消したレビュー要件
+# のバイパスを復活させる必要がある。作成時に埋めるならブランチ保護を掛ける前なので、
+# バイパスそのものが要らない。後追いの 1 回だけなら、教員の管理者権限で足りる。
 #
 # 設計
 #   - draft ブランチを README.md の権威とし、main はそれを写すだけにする
@@ -68,67 +68,16 @@ WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 ROSTER_FILE="$WORK_DIR/roster.csv"
-ROSTER_AVAILABLE=false
 
 # gh の stderr の置き場。ファイルが無いことと要求が失敗したことは、どちらも gh を
 # 非ゼロで終わらせる。見分けられるのは stderr だけである
 # （thesis-report の collect-progress.sh と同じ理由・同じ手）
 API_ERR="$WORK_DIR/api-err.txt"
 
-# 直近の fetch_readme が取った README.md の blob SHA。成功時のみ設定される。
-FETCHED_SHA=""
-
-# 年度（4月〜3月）。thesis-report の collect-progress.sh と同じ計算にそろえる。
-# ずれると名簿を引く年度が変わり、氏名が引けなくなる。
-fiscal_year() {
-    local month year
-    month=$(TZ='Asia/Tokyo' date +%-m)
-    year=$(TZ='Asia/Tokyo' date +%Y)
-    if [ "$month" -ge 4 ]; then
-        echo "$year"
-    else
-        echo $((year - 1))
-    fi
-}
-
-# 名簿を取得する。無くても同期自体は続ける（氏名の補完だけが効かなくなる）。
-load_roster() {
-    local path="${ROSTER_PATH:-$(fiscal_year)/students.csv}"
-
-    if gh api "repos/${ROSTER_REPO}/contents/${path}" \
-        -H "Accept: application/vnd.github.raw" > "$ROSTER_FILE" 2>/dev/null; then
-        ROSTER_AVAILABLE=true
-        log "名簿: ${ROSTER_REPO}/${path}（$(wc -l < "$ROSTER_FILE" | tr -d ' ') 行）"
-    else
-        warn "名簿を取得できません: ${ROSTER_REPO}/${path}"
-        warn "氏名の補完はスキップし、draft → main の同期のみ行います"
-    fi
-}
-
-# 学籍番号から氏名を引く。
-#
-# 名簿は学部の学籍番号と大学院の学籍番号を別の列に持つ。大学院生の行は学部の
-# 学籍番号も併せ持つため、リポジトリ名から引くときは課程に応じて見る列を変える
-# 必要がある。この規則は thesis-report の collect-progress.sh と同じ。
-#   - 学部（rs / jk）: 3 列目
-#   - 大学院（gjk）  : 2 列目
-# 氏名は 4 列目。先頭の 'k' を落として大文字化した形で突き合わせる。
-lookup_author() {
-    local student_id="$1" normalized column
-
-    # 契約: 引けたら氏名を標準出力に書き、引けなければ何も書かない。名簿が無い
-    # 場合も「引けなかった」と同じ扱いにする（呼び出し側は空かどうかだけを見る）。
-    [ "$ROSTER_AVAILABLE" = true ] || return 0
-
-    normalized=$(printf '%s' "$student_id" | sed 's/^[kK]//' | tr '[:lower:]' '[:upper:]')
-    case "$normalized" in
-        *GJK*) column=2 ;;
-        *)     column=3 ;;
-    esac
-
-    awk -F',' -v id="$normalized" -v c="$column" \
-        '$c == id { gsub(/"/, "", $4); print $4; exit }' "$ROSTER_FILE"
-}
+# 名簿の引き方とプレースホルダの置換は、作成時に埋める fill-author-readme.sh と
+# 同じでなければならない（違うと同じリポジトリを 2 回処理したときに内容が揺れる）。
+# shellcheck source=scripts/lib/author-readme.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/author-readme.sh"
 
 # 最新の draft ブランチ名（0th-draft, 1st-draft, ... のうち序数が最大のもの）。
 # 学生が執筆しているのは常に最新の draft であり、そこが README.md の権威になる。
@@ -181,122 +130,11 @@ can_push_to_main() {
     [ "$is_admin" = true ]
 }
 
-# README.md をそのブランチから取り出し、blob SHA を FETCHED_SHA に置く。
-#
-# 内容と SHA を 1 回の呼び出しで取るのが要点である。別々に取ると、その間に
-# push された場合に「新しい SHA + 古い内容」で上書きすることになり、学生の
-# commit を失う。同じ応答から取った SHA を使えば、ブランチが動いていた場合は
-# PUT が 409 で失敗する。取り違えて上書きするより、失敗するほうが良い。
-#
-# 「無い」と「取得できなかった」は呼び出し側が区別できるように返り値を分ける。
-# ひとまとめにすると、一時的な 5xx や認証の失敗が「README.md が無い」と読めて
-# しまい、黙ってスキップされる。
-#   0: 取得できた（FETCHED_SHA にその時点の SHA が入る）
-#   1: そのブランチに README.md が無い（404）
-#   2: 取得に失敗した（それ以外）
-fetch_readme() {
-    local repo="$1" ref="$2" out="$3" json
-
-    FETCHED_SHA=""
-
-    if ! json=$(gh api "repos/${repo}/contents/README.md?ref=${ref}" 2>"$API_ERR"); then
-        # gh 2.103.2 の文面は `gh: Not Found (HTTP 404)`。この判定は「HTTP 404」
-        # だけに絞る。緩めると、リポジトリやブランチが無いことによる 404 まで
-        # 「README.md が無い」と読んで**成功として数える**ことになる。逆に gh の
-        # 文面が将来変わった場合は、ここを素通りして「取得に失敗」になり、
-        # 非ゼロ終了して気付ける。読み違えるより騒がしく失敗するほうが良い
-        if grep -q "HTTP 404" "$API_ERR"; then
-            return 1
-        fi
-        error "  README.md を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
-        return 2
-    fi
-
-    FETCHED_SHA=$(printf '%s' "$json" | jq -r '.sha')
-
-    # content は base64 で、改行を挟んで返る。復号に openssl を使うのは
-    # base64(1) の復号オプションが環境で揺れるため（GNU は -d、BSD は -D）。
-    #
-    # -A は外せない。openssl base64 -d は -A が無いと入力が 64 文字で折り返されて
-    # いる前提で読むので、tr -d '\n' で 1 行にしたものを渡すと **何も出さずに
-    # 成功する**（空の README.md を main に push することになる）。tr で 1 行に
-    # しているからこそ -A が要るという関係で、どちらも冗長ではない。
-    printf '%s' "$json" | jq -r '.content' | tr -d '\n' | openssl base64 -d -A > "$out"
-}
-
-# ファイルを contents API で push する。
-#
-# sha が空のときは SHA を送らない。contents API はこれを新規作成として扱うので、
-# 「そのブランチに README.md が無い」場合の作成経路がこれになる。既存ファイルに
-# 対して空で呼ぶと 422 になるため、呼び出し側は取得の成否で存在を確かめてから渡す。
-put_readme() {
-    local repo="$1" branch="$2" file="$3" message="$4" sha="$5"
-    local encoded
-
-    # base64 の折り返し指定は環境差がある（GNU の -w0 は macOS に無い）ため、
-    # 改行を後から落とす形にそろえる。
-    encoded=$(base64 < "$file" | tr -d '\n')
-
-    local args=(
-        -X PUT "repos/${repo}/contents/README.md"
-        -f "message=${message}"
-        -f "content=${encoded}"
-        -f "branch=${branch}"
-    )
-    [ -n "$sha" ] && args+=(-f "sha=${sha}")
-
-    # 失敗の原因（保護・SHA の衝突・権限）は gh の文面にしか出ない。どのリポジトリの
-    # どのブランチで起きたかを添えないと、27 件を回したログから特定できない
-    if ! gh api "${args[@]}" --jq '.commit.sha' >/dev/null 2>"$API_ERR"; then
-        error "  README.md を push できない (${repo}@${branch}): $(tr '\n' ' ' < "$API_ERR")"
-        return 1
-    fi
-}
-
-# プレースホルダを名簿の値で埋める。
-#
-# 6 つのテンプレートすべてが同じプレースホルダ（（氏名）と（k00rs000））を使って
-# いるため、置換は文字列一致で足りる。種別や所属は選択肢の削除を学生に委ねている
-# ので触らない（機械的に決まるのは氏名と学籍番号だけ）。
-#
-# 埋める学籍番号はリポジトリ名の先頭部分そのままで、`k` 付きの小文字である
-# （例: k23rs017）。プレースホルダ側も `k` 付きの小文字なので形式が揃う。
-# lookup_author が `k` を落として大文字化するのは名簿の列に合わせるためだけで、
-# README に書く表記とは別物である。
-fill_placeholders() {
-    local name="$1" student_id="$2" in="$3" out="$4"
-
-    # gsub も split も使わない。どちらも正規表現を経由するため、置換の両側で
-    # 文字列が解釈される。
-    #   - gsub の置換文字列では & が「一致した文字列」を意味し、-v の代入でも
-    #     エスケープが一段消えるので、& を含む氏名が二重に壊れる
-    #     （"A & B" が "A （氏名） B" になる）。実際に踏んで直した
-    #   - split の第 3 引数は正規表現として解釈される。現在のプレースホルダは
-    #     全角括弧なので実害は無いが、ASCII のメタ文字を含む形に変えた途端に壊れる
-    # index と substr で回せば、from 側も to 側も解釈が入らない。
-    awk -v name="$name" -v id="$student_id" '
-        function replace(s, from, to,    out, pos, flen) {
-            out = ""
-            flen = length(from)
-            while ((pos = index(s, from)) > 0) {
-                out = out substr(s, 1, pos - 1) to
-                s = substr(s, pos + flen)
-            }
-            return out s
-        }
-        {
-            line = replace($0, "（氏名）", name)
-            line = replace(line, "（k00rs000）", id)
-            print line
-        }
-    ' "$in" > "$out"
-}
-
 sync_repository() {
     local repo_name="$1"
     local repo="${OWNER}/${repo_name}"
-    local draft desired main_readme student_id author
-    local draft_sha main_sha status
+    local draft desired main_readme
+    local draft_sha main_sha status values_status
 
     draft=$(latest_draft_branch "$repo") || return 1
     if [ -z "$draft" ]; then
@@ -329,12 +167,14 @@ sync_repository() {
     # 1. 氏名のプレースホルダが残っているなら名簿から埋め、draft に push する。
     #    draft を権威とする設計なので、補完も draft 側へ行う。
     if grep -q '（氏名）' "$desired"; then
-        student_id="${repo_name%%-*}"
-        author=$(lookup_author "$student_id")
+        values_status=0
+        author_readme_values "$repo_name" || values_status=$?
 
-        if [ -n "$author" ]; then
+        if [ "$values_status" = 0 ]; then
             local filled="$WORK_DIR/filled-readme.md"
-            fill_placeholders "$author" "$student_id" "$desired" "$filled"
+            if ! fill_placeholders "$desired" "$filled"; then
+                return 1
+            fi
 
             if [ "$DRY_RUN" = true ]; then
                 log "  [dry-run] $draft の著者情報を名簿から補完する"
@@ -352,8 +192,12 @@ sync_repository() {
             # 内容で行うため。ここで分けると dry-run だけ「main と一致」と報告して
             # しまい、実行結果を予告できなくなる
             mv "$filled" "$desired"
+        elif [ "$values_status" = 1 ]; then
+            log "  リポジトリ名から学籍番号を取り出せないため補完をスキップ: $repo_name"
+        elif [ "$values_status" = 2 ]; then
+            log "  名簿が無いため著者情報の補完をスキップ（main への写しは続ける）"
         else
-            log "  名簿に $student_id の行が無いため著者情報の補完をスキップ"
+            log "  名簿に ${AR_STUDENT_ID} の行が無いため著者情報の補完をスキップ"
         fi
     fi
 
@@ -414,6 +258,8 @@ list_targets() {
 
 main() {
     local targets=() failures=0
+
+    require_tools || exit 1
 
     if ! gh auth status >/dev/null 2>&1; then
         error "GitHub CLI is not authenticated"
