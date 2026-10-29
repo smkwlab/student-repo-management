@@ -180,6 +180,12 @@ fill_branch() {
 
 main() {
     REPO_NAME_ARG="$1"
+
+    # 1 リポジトリ専用のスクリプトなので 1 回しか通らないが、ここで初期化して
+    # おけば、将来ループで複数リポジトリを回す形に変えたときに、前のリポジトリの
+    # 氏名や判定結果を引き継がない
+    VALUES_STATE=""
+    AR_NAME=""
     local repo="${OWNER}/${REPO_NAME_ARG}"
     local failures=0 branch
 

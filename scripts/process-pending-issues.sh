@@ -1373,6 +1373,9 @@ execute_repository_delete() {
 # 問題で、ブランチ保護とレジストリ登録のほうが重い。入らなかったリポジトリは
 # 後から scripts/sync-author-readme.sh で埋められる。
 #
+# **この関数は常に 0 を返す。** 呼び出し側が `|| return 1` と書いても効かない。
+# 結果を見たい場合は AUTHOR_README_FILLED を読むこと。
+#
 fill_author_readme() {
     local script="$SCRIPT_DIR/fill-author-readme.sh"
     local ok=true

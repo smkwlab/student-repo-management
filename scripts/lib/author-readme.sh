@@ -175,25 +175,52 @@ author_readme_values() {
 #   0: 取得できた（FETCHED_SHA にその時点の SHA が入る）
 #   1: そのブランチに README.md が無い（404）
 #   2: 取得に失敗した（それ以外）
+#
+# 判定は -i が出す HTTP のステータス行で行う。gh の人間向けメッセージ
+# （`gh: Not Found (HTTP 404)`）を照合すると、文面が変わった時点で壊れる。
+# ステータス行は HTTP の形式なので変わらない。
+#
+# この 404 は「ブランチに README.md が無い」とも「ブランチやリポジトリが無い」
+# とも読める。区別は呼び出し側の役目で、どちらも先にリポジトリの存在を確かめて
+# から呼んでいる（fill-author-readme.sh は repos/<repo>、sync-author-readme.sh は
+# ブランチ一覧の取得）。
 fetch_readme() {
-    local repo="$1" ref="$2" out="$3" json
+    local repo="$1" ref="$2" out="$3"
+    local resp="$WORK_DIR/readme-response.txt"
+    local body="$WORK_DIR/readme-body.json"
+    local status_line
 
     FETCHED_SHA=""
+    # 失敗して返るときに前回の内容が残らないようにする。呼び出し側は 0 のときだけ
+    # 読む約束だが、空にしておけば約束が破られても古い README を push しない
+    : > "$out"
 
-    if ! json=$(gh api "repos/${repo}/contents/README.md?ref=${ref}" 2>"$API_ERR"); then
-        # gh 2.103.2 の文面は `gh: Not Found (HTTP 404)`。この判定は「HTTP 404」
-        # だけに絞る。緩めると、リポジトリやブランチが無いことによる 404 まで
-        # 「README.md が無い」と読んで**成功として数える**ことになる。逆に gh の
-        # 文面が将来変わった場合は、ここを素通りして「取得に失敗」になり、
-        # 非ゼロ終了して気付ける。読み違えるより騒がしく失敗するほうが良い
-        if grep -q "HTTP 404" "$API_ERR"; then
-            return 1
-        fi
-        error "  README.md を取得できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
+    # 終了コードは見ない。ステータス行で分けるので、gh が非ゼロで終わったことと
+    # 「README.md が無い」ことを取り違える余地が無い
+    gh api -i "repos/${repo}/contents/README.md?ref=${ref}" > "$resp" 2>"$API_ERR" || true
+
+    status_line=$(head -1 "$resp")
+    case "$status_line" in
+        "HTTP/"*" 404"*) return 1 ;;
+        "HTTP/"*" 200"*) ;;
+        *)
+            # ステータス行が無いのは、要求を出す前に落ちた場合（認証・名前解決）。
+            # そのときだけ gh の文面を出す
+            error "  README.md を取得できない (${repo}@${ref}): ${status_line:-$(tr '\n' ' ' < "$API_ERR")}"
+            return 2
+            ;;
+    esac
+
+    # ヘッダと本文は空行 1 つで区切られる（HTTP の形式どおり CR が付く）。
+    # 最初の空行だけを境界として扱う
+    awk 'BEGIN { body = 0 }
+         /^\r?$/ && !body { body = 1; next }
+         body { print }' "$resp" > "$body"
+
+    if ! FETCHED_SHA=$(jq -er '.sha' < "$body" 2>"$API_ERR"); then
+        error "  README.md の応答を解釈できない (${repo}@${ref}): $(tr '\n' ' ' < "$API_ERR")"
         return 2
     fi
-
-    FETCHED_SHA=$(printf '%s' "$json" | jq -r '.sha')
 
     # content は base64 で、改行を挟んで返る。復号に openssl を使うのは
     # base64(1) の復号オプションが環境で揺れるため（GNU は -d、BSD は -D）。
@@ -202,7 +229,7 @@ fetch_readme() {
     # いる前提で読むので、tr -d '\n' で 1 行にしたものを渡すと **何も出さずに
     # 成功する**（空の README.md を push することになる）。tr で 1 行に
     # しているからこそ -A が要るという関係で、どちらも冗長ではない。
-    printf '%s' "$json" | jq -r '.content' | tr -d '\n' | openssl base64 -d -A > "$out"
+    jq -r '.content' < "$body" | tr -d '\n' | openssl base64 -d -A > "$out"
 }
 
 # ファイルを contents API で push する。
@@ -253,6 +280,8 @@ fill_placeholders() {
 
     awk -v name="$AR_NAME" -v id="$AR_STUDENT_ID" -v kind="$AR_KIND" \
         -v affiliation="$AR_AFFILIATION" -v year="$AR_YEAR" '
+        # to が空なら s を変更せずに返す（プレースホルダを残す）。
+        # 置換の走査に入る前に返るので、from が何回現れても元の行がそのまま出る
         function replace(s, from, to,    out, pos, flen) {
             if (to == "") return s
             out = ""
