@@ -416,7 +416,7 @@ fill_placeholders() {
 migrate_legacy_readme() {
     local in="$1" out="$2"
 
-    awk '
+    if ! awk '
         # fill_placeholders と同じ実装。正規表現を経由しないのが要点で、理由は
         # あちらのコメントに書いてある。両方を同じ実装にしておくほうが、
         # 置換の癖が片方だけ違うより読み手が楽である
@@ -481,5 +481,15 @@ migrate_legacy_readme() {
                 print replace(s, affil_alt, "（所属）")
             }
         }
-    ' "$in" > "$out"
+    ' "$in" > "$out"; then
+        return 1
+    fi
+
+    # awk が 0 を返しながら空を書いた場合の歯止め。呼び出し側は in と out の差を
+    # 「寄せが起きた」と読むので、空のまま進むと空の README を draft と main の
+    # 両方へ push することになる。入力が空なら出力も空で正しいので、入力と見比べる
+    if [ -s "$in" ] && [ ! -s "$out" ]; then
+        error "  README.md を寄せた結果が空になった: $in"
+        return 1
+    fi
 }
