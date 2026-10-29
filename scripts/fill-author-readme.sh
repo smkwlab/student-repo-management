@@ -167,10 +167,16 @@ fill_branch() {
 
     fill_placeholders "$current" "$filled" || return 1
 
+    # 自分の種別に関係ない「執筆するファイル」の行を落とす。種別が決まらない
+    # 場合（AR_KIND が空）は prune_file_list が素通しするので、ここでは分けない
+    local pruned="$WORK_DIR/pruned-${branch}.md"
+    prune_file_list "$filled" "$pruned" "$AR_KIND" || return 1
+    mv "$pruned" "$filled"
+
     if [ "$DRY_RUN" = true ]; then
         log "  [dry-run] $branch に書き込む内容:"
-        # 置換が効いた行だけを見せる。README 全体を出すと、27 行のうち
-        # 5 行しか変わらないことが読み取れない
+        # 変わった行だけを見せる。README 全体を出すと、数十行のうち数行しか
+        # 変わらないことが読み取れない
         diff "$current" "$filled" | sed 's/^/    /' || true
         return 0
     fi
