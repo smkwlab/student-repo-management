@@ -115,8 +115,10 @@ ensure_values() {
             return 1
             ;;
         2)
-            error "名簿を取得できないため著者情報を埋められない (${ROSTER_REPO})"
-            error "  原因を直してから ./scripts/sync-author-readme.sh ${REPO_NAME_ARG} を実行する"
+            # load_roster が直前に「名簿を取得できません: <repo>/<path>」を
+            # 出している。ここで同じことを繰り返さず、その結果と次の手だけ言う
+            error "著者情報を記入できなかった"
+            error "  名簿が読めるようになってから ./scripts/sync-author-readme.sh ${REPO_NAME_ARG} を実行する"
             return 1
             ;;
         3)

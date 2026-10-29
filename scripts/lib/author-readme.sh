@@ -191,6 +191,12 @@ student_id_from_repo_name() {
 # 1: 学籍番号を取り出せない（個人モードで作られたリポジトリなど）
 # 2: 名簿そのものを取得できていない
 # 3: 名簿にこの学籍番号の行が無い
+#
+# 2 と 3 を受けたあとどうするかは呼び出し元で違う。作成時（fill-author-readme.sh）
+# は README がテンプレートのままなので、埋められないことは失敗である。後追い
+# （sync-author-readme.sh）は draft から main へ写す仕事が残っているので、補完
+# だけを飛ばして続ける。この違いは意図したものなので、同じ返り値で別の扱いを
+# している。
 author_readme_values() {
     local repo_name="$1"
 
@@ -343,7 +349,11 @@ fill_placeholders() {
     # replace() は to が空なら行をそのまま返すので、プレースホルダが残る。
     # それでも止めるのは、プレースホルダが残った README を push して
     # 「埋めた」と報告するより、埋められないと言うほうが正しいからである。
-    if [ -z "$AR_STUDENT_ID" ] || [ -z "$AR_NAME" ]; then
+    # 種別は除く。（種別）を持つのは 2 つのテンプレートだけで、決まらない
+    # ことが正常にあり得る（そのときはプレースホルダを残す）。残り 4 つは
+    # author_readme_values が 0 を返したなら必ず入っている
+    if [ -z "$AR_STUDENT_ID" ] || [ -z "$AR_NAME" ] \
+        || [ -z "$AR_AFFILIATION" ] || [ -z "$AR_YEAR" ]; then
         error "  author_readme_values が 0 を返した後に呼ぶこと（著者情報が未設定）"
         return 1
     fi
