@@ -1380,6 +1380,11 @@ fill_author_readme() {
     local script="$SCRIPT_DIR/fill-author-readme.sh"
     local ok=true
 
+    # 1 回の実行で複数の Issue を処理するので、前の Issue の結果を持ち越さない。
+    # 下の if/else がどちらの枝でも代入するため現状は上書きされるが、ここで
+    # 消しておけば、読む側が「両方の枝が代入している」ことを確かめずに済む
+    AUTHOR_README_FILLED=false
+
     echo "  README.md に著者情報を記入中..."
     # --dry-run の有無で呼び分ける。配列で引数を組むと、空のときの展開が
     # bash のバージョンで揺れる
