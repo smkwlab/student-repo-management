@@ -198,8 +198,8 @@ sync_repository() {
     # 氏名だけを見てはいけない。旧テンプレートの選択肢は寄せた結果（種別）
     # （所属）になるので、氏名を自分で書いた学生のリポジトリでは、氏名が
     # 無いという理由でそれらが置換されずに残ってしまう
+    values_status=0
     if grep -qE '（氏名）|（k00rs000）|（種別）|（所属）|（20XX）' "$work"; then
-        values_status=0
         author_readme_values "$repo_name" || values_status=$?
 
         if [ "$values_status" = 0 ]; then
@@ -216,6 +216,16 @@ sync_repository() {
         else
             log "  名簿に ${AR_STUDENT_ID} の行が無いため著者情報の補完をスキップ"
         fi
+    fi
+
+    # 値が引けなかったのなら、寄せも捨てる。寄せだけを push すると
+    # 「- **種別**: 卒業論文 / 修士論文」が「- **種別**: （種別）」に変わった
+    # README を学生のトップページに残すことになり、寄せる前より悪い。寄せを
+    # 捨てれば、取ってきたままの draft を main へ写す動きだけが残る（#609 と同じ）。
+    # 名簿が引けないのは権限や指定の問題で、直してから回し直せば最後まで埋まる
+    if [ "$values_status" != 0 ]; then
+        warn "  著者情報が埋まらないため、テンプレートの形への寄せも行わない: $repo_name"
+        migrated=false
     fi
 
     if [ "$migrated" = true ] || [ "$author_filled" = true ]; then
