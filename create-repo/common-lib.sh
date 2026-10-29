@@ -736,9 +736,10 @@ cleanup_template_files() {
     rm -f .github/workflows/security.yml 2>/dev/null || true
     # GitHub は README を .github/ → root → docs/ の順に探して最初の 1 つを表示する。
     # テンプレート側はこの性質を使い、テンプレートの使い方を .github/README.md に、
-    # 学生が記入する著者情報を root の README.md に置いている。ここで前者を削除する
-    # ことで、学生リポジトリのトップに著者情報 README が表示される
-    # （smkwlab/latex-ecosystem#140）。
+    # 著者情報を root の README.md に置いている。ここで前者を削除することで、
+    # 学生リポジトリのトップに著者情報 README が表示される
+    # （smkwlab/latex-ecosystem#140）。著者情報は作成フローが埋めるので、
+    # 学生が記入する項目は無い（smkwlab/latex-ecosystem#191）。
     rm -f .github/README.md 2>/dev/null || true
     return 0
 }
