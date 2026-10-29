@@ -194,6 +194,8 @@ sync_repository() {
             mv "$filled" "$desired"
         elif [ "$values_status" = 1 ]; then
             log "  リポジトリ名から学籍番号を取り出せないため補完をスキップ: $repo_name"
+        elif [ "$values_status" = 2 ]; then
+            log "  名簿が無いため著者情報の補完をスキップ（main への写しは続ける）"
         else
             log "  名簿に ${AR_STUDENT_ID} の行が無いため著者情報の補完をスキップ"
         fi

@@ -114,16 +114,14 @@ ensure_values() {
             error "リポジトリ名から学籍番号を取り出せない: $REPO_NAME_ARG"
             return 1
             ;;
-        *)
-            # 「名簿が読めない」と「名簿にこの学生の行が無い」は、どちらも氏名が
-            # 引けない結果になるが、直す場所が違う。前者はトークンの権限か
-            # ROSTER_REPO の指定、後者は名簿そのものである
-            if [ "$ROSTER_AVAILABLE" != true ]; then
-                error "名簿を取得できないため著者情報を埋められない (${ROSTER_REPO})"
-            else
-                error "名簿に ${AR_STUDENT_ID} の行が無いため著者情報を埋められない"
-            fi
+        2)
+            error "名簿を取得できないため著者情報を埋められない (${ROSTER_REPO})"
             error "  原因を直してから ./scripts/sync-author-readme.sh ${REPO_NAME_ARG} を実行する"
+            return 1
+            ;;
+        *)
+            error "名簿に ${AR_STUDENT_ID} の行が無いため著者情報を埋められない"
+            error "  名簿を直してから ./scripts/sync-author-readme.sh ${REPO_NAME_ARG} を実行する"
             return 1
             ;;
     esac

@@ -14,6 +14,13 @@
 #   - ROSTER_FILE に名簿の置き場を入れておくこと
 #   - ROSTER_REPO（と任意で ROSTER_PATH）を設定しておくこと
 #
+# 呼び出し順序:
+#   author_readme_values <リポジトリ名>   ← AR_* をそろえる
+#   fetch_readme ... / fill_placeholders ... / put_readme ...
+#   fill_placeholders は AR_* を読むので、先に author_readme_values を通すこと
+#   （通っていなければ番兵が非ゼロで返る）。load_roster は author_readme_values
+#   が氏名を引く前に 1 度呼んでおく。
+#
 # 変数の名前を呼び出し側と共有しているのは、どちらのスクリプトも 1 プロセスで
 # 完結する用具であり、引数で引き回すより取り違えが起きにくいためである。
 
@@ -47,8 +54,17 @@ fiscal_year() {
 }
 
 # 名簿を取得する。無くても呼び出し側の処理は続けられる（氏名の補完だけが効かない）。
+#
+# **この関数は常に 0 を返す。** 名簿が無いことは異常ではなく ROSTER_AVAILABLE に
+# 記録される状態なので、set -e の下で bare call してよい。末尾の return 0 は
+# その契約を固定するためのもので、消すと最後のコマンドの終了コードが漏れる。
 load_roster() {
     local path="${ROSTER_PATH:-$(fiscal_year)/students.csv}"
+
+    # 取得に失敗しても下のリダイレクトが ROSTER_FILE を空にするので、旗を先に
+    # 倒しておく。倒さずに 2 回目の呼び出しが失敗すると、「旗は true だが中身は
+    # 空」になり、名簿が読めないことが「名簿に行が無い」に化ける
+    ROSTER_AVAILABLE=false
 
     if gh api "repos/${ROSTER_REPO}/contents/${path}" \
         -H "Accept: application/vnd.github.raw" > "$ROSTER_FILE" 2>/dev/null; then
@@ -60,6 +76,8 @@ load_roster() {
         # どちらの文脈でも成り立つ言い方にしておく
         warn "氏名の取得はスキップします"
     fi
+
+    return 0
 }
 
 # 学籍番号から氏名を引く。
@@ -146,9 +164,15 @@ student_id_from_repo_name() {
 # 落として大文字化するのは名簿の列に合わせるためだけで、README に書く表記とは
 # 別物である。
 #
+# 氏名が引けない理由は 2 つあり、直す場所が違うので返り値も分ける。名簿が
+# 読めないのはトークンの権限か ROSTER_REPO の指定、行が無いのは名簿そのもの
+# である。呼び出し側に ROSTER_AVAILABLE を見させると、この区別が呼び出し側の
+# 数だけ重複する。
+#
 # 0: 埋めるべき値がそろった
 # 1: 学籍番号を取り出せない（個人モードで作られたリポジトリなど）
-# 2: 名簿に行が無く氏名が引けない
+# 2: 名簿そのものを取得できていない
+# 3: 名簿にこの学籍番号の行が無い
 author_readme_values() {
     local repo_name="$1"
 
@@ -157,8 +181,10 @@ author_readme_values() {
     AR_STUDENT_ID=$(student_id_from_repo_name "$repo_name")
     [ -n "$AR_STUDENT_ID" ] || return 1
 
+    [ "$ROSTER_AVAILABLE" = true ] || return 2
+
     AR_NAME=$(lookup_author "$AR_STUDENT_ID")
-    [ -n "$AR_NAME" ] || return 2
+    [ -n "$AR_NAME" ] || return 3
 
     AR_KIND=$(kind_for "$repo_name" "$AR_STUDENT_ID")
     AR_AFFILIATION=$(affiliation_for "$AR_STUDENT_ID")
