@@ -123,7 +123,7 @@ INDIVIDUAL_MODE=true bash <(curl -fsSL https://repo-setup.smkwlab.net) latex
   - main と `0th-draft` の両方に書く。main だけでは提出時の最終 merge で
     プレースホルダに戻り、`0th-draft` だけでは main に届かない
   - **ブランチ保護を掛ける前に実行する。** 保護後に main へ書くには
-    [#577](https://github.com/smkwlab/student-repo-management/issues/577) が消した
+    [#578](https://github.com/smkwlab/student-repo-management/pull/578) が消した
     レビュー要件のバイパスが必要になる
 
 - **[sync-author-readme.sh](scripts/sync-author-readme.sh)**: 既存リポジトリの
