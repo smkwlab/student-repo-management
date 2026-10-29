@@ -1463,7 +1463,8 @@ process_thesis_with_feedback() {
     echo "  📚 論文リポジトリの処理を開始..."
     echo ""
     
-    # 1. 著者 README の記入
+    # 1. 著者 README の記入（ブランチ保護より前に行う。理由は
+    #    fill_author_readme のコメント）
     fill_author_readme
     
     # 2. ブランチ保護設定
@@ -1525,7 +1526,8 @@ process_ise_with_feedback() {
     echo "  📝 情報科学演習レポートの処理を開始..."
     echo ""
     
-    # 1. 著者 README の記入
+    # 1. 著者 README の記入（ブランチ保護より前に行う。理由は
+    #    fill_author_readme のコメント）
     fill_author_readme
     
     # 2. ブランチ保護設定（PR学習目的）
@@ -1594,7 +1596,8 @@ process_poster_with_feedback() {
     echo "  📊 学会ポスターリポジトリの処理を開始..."
     echo ""
 
-    # 1. 著者 README の記入
+    # 1. 著者 README の記入（ブランチ保護より前に行う。理由は
+    #    fill_author_readme のコメント）
     fill_author_readme
 
     # 2. ブランチ保護設定（draft PR レビュー用）
@@ -1678,7 +1681,8 @@ process_latex_review_with_feedback() {
     echo "  📄 汎用LaTeXリポジトリ（レビューフロー有効）の処理を開始..."
     echo ""
 
-    # 1. 著者 README の記入
+    # 1. 著者 README の記入（ブランチ保護より前に行う。理由は
+    #    fill_author_readme のコメント）
     fill_author_readme
 
     # 2. ブランチ保護設定（draft PR レビュー用）

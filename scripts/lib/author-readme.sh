@@ -40,6 +40,24 @@ AR_YEAR=""
 UNDERGRADUATE_AFFILIATION="九州産業大学理工学部情報科学科"
 GRADUATE_AFFILIATION="九州産業大学大学院情報科学研究科"
 
+# 必要な外部コマンドがそろっているか確かめる。
+#
+# 無い場合でも黙って誤った結果を出すことはない（jq や openssl が無ければ
+# パイプラインが失敗し、fetch_readme は 2 を返す）。ただし出る文面は
+# `openssl: command not found` で、何を入れればよいか分からない。
+# 入口で名前を挙げて止める。
+require_tools() {
+    local missing="" tool
+    for tool in gh jq openssl base64 awk; do
+        command -v "$tool" >/dev/null 2>&1 || missing="${missing:+$missing, }$tool"
+    done
+
+    if [ -n "$missing" ]; then
+        error "必要なコマンドがありません: $missing"
+        return 1
+    fi
+}
+
 # 年度（4月〜3月）。thesis-report の collect-progress.sh と同じ計算にそろえる。
 # ずれると名簿を引く年度が変わり、氏名が引けなくなる。
 fiscal_year() {
@@ -315,11 +333,18 @@ put_readme() {
 fill_placeholders() {
     local in="$1" out="$2"
 
-    # author_readme_values を先に呼ぶ契約を、呼ばれなかったときに黙って
-    # 空文字で置換しないよう確かめる。学籍番号は必ず入る（氏名が引けなくても
-    # author_readme_values が設定する）ので、ここを番兵にできる
-    if [ -z "$AR_STUDENT_ID" ]; then
-        error "  author_readme_values を先に呼ぶこと（著者情報が未設定）"
+    # author_readme_values が 0 を返した後に呼ぶ契約を確かめる。
+    #
+    # 学籍番号だけでは足りない。author_readme_values は氏名を引く前に
+    # AR_STUDENT_ID を設定するので、名簿に行が無い場合（返り値 3）でも
+    # 学籍番号は入っている。両方を見て「値がそろっている」ことを確かめる。
+    #
+    # なお AR_NAME が空のまま通っても（氏名）が空文字で消えることはない。
+    # replace() は to が空なら行をそのまま返すので、プレースホルダが残る。
+    # それでも止めるのは、プレースホルダが残った README を push して
+    # 「埋めた」と報告するより、埋められないと言うほうが正しいからである。
+    if [ -z "$AR_STUDENT_ID" ] || [ -z "$AR_NAME" ]; then
+        error "  author_readme_values が 0 を返した後に呼ぶこと（著者情報が未設定）"
         return 1
     fi
 

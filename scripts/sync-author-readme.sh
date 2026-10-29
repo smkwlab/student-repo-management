@@ -259,6 +259,8 @@ list_targets() {
 main() {
     local targets=() failures=0
 
+    require_tools || exit 1
+
     if ! gh auth status >/dev/null 2>&1; then
         error "GitHub CLI is not authenticated"
         exit 1

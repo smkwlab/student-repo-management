@@ -119,9 +119,14 @@ ensure_values() {
             error "  原因を直してから ./scripts/sync-author-readme.sh ${REPO_NAME_ARG} を実行する"
             return 1
             ;;
-        *)
+        3)
             error "名簿に ${AR_STUDENT_ID} の行が無いため著者情報を埋められない"
             error "  名簿を直してから ./scripts/sync-author-readme.sh ${REPO_NAME_ARG} を実行する"
+            return 1
+            ;;
+        *)
+            # 返り値が増えたときに、既存のどれかの文面で黙って処理されないように
+            error "author_readme_values が予期しない値を返した: $values_status"
             return 1
             ;;
     esac
@@ -186,6 +191,8 @@ main() {
     VALUES_STATE=""
     local repo="${OWNER}/${REPO_NAME_ARG}"
     local failures=0 branch
+
+    require_tools || exit 1
 
     if ! gh auth status >/dev/null 2>&1; then
         error "GitHub CLI is not authenticated"
