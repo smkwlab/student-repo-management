@@ -16,9 +16,12 @@
 #
 # 呼び出し順序:
 #   author_readme_values <リポジトリ名>   ← AR_* をそろえる
-#   fetch_readme ... / migrate_legacy_readme ... / fill_placeholders ... / put_readme ...
+#   fetch_readme ... / migrate_legacy_readme ... / fill_placeholders ...
+#   prune_file_list ... / put_readme ...
 #   migrate_legacy_readme は fill_placeholders より先に通すこと。旧テンプレートの
 #   literal な選択肢をプレースホルダに変えるので、順序が逆だと埋まらない。
+#   prune_file_list は種別を引数で受けるので AR_* には依存しない（名簿が引けなくても
+#   通せる）。順序の制約も無い。
 #   fill_placeholders は AR_* を読むので、先に author_readme_values を通すこと
 #   （通っていなければ番兵が非ゼロで返る）。load_roster は author_readme_values
 #   が氏名を引く前に 1 度呼んでおく。
@@ -490,6 +493,75 @@ migrate_legacy_readme() {
     # 両方へ push することになる。入力が空なら出力も空で正しいので、入力と見比べる
     if [ -s "$in" ] && [ ! -s "$out" ]; then
         error "  README.md を寄せた結果が空になった: $in"
+        return 1
+    fi
+}
+
+# 自分の種別に関係ない「執筆するファイル」の行を落とす。
+#
+# sotsuron-template の README.md は卒業論文と修士論文の両方の行を持つ。テンプレートに
+# は両方の .tex があるので正しいが、学生のリポジトリには自分の種別のファイルだけが
+# 置かれる（create-repo の remove_unused_thesis_files）。片方の行は、そのリポジトリに
+# 無いファイルを案内することになる。
+#
+# 「このリポジトリには…」の導入文も落とす。箇条が 1 本になれば伝えることが無く、
+# テンプレート側でも外した（sotsuron-template#152）。固定版（タグ付き URL /
+# UNIVERSAL_REF）でそれより前のテンプレートから作られた場合には入ってくるので、
+# ここでも見る。
+#
+# 落とすのはどちらも形が一致したときだけ。作成時に通るので通常は手が入っていないが、
+# 後から回しても学生が書き換えた行は一致せず残る:
+#   - 導入文（空行が 2 つ並ぶ場合は直後の空行も）
+#   - 自分でない種別の箇条（箇条の頭だけを見る。ファイル名を書き換えていても落とす）
+#
+# 種別が卒業論文／修士論文のどちらでもないなら何もしない。この節を持つのは
+# sotsuron-template だけなので、ほかのテンプレートを通っても入力がそのまま出る。
+prune_file_list() {
+    local in="$1" out="$2" kind="$3"
+    local drop=""
+
+    case "$kind" in
+        卒業論文) drop="- **修士論文**: " ;;
+        修士論文) drop="- **卒業論文**: " ;;
+        *)
+            # 何もしない場合でも出力は作る。呼び出し側は in と out を見比べて
+            # 「整理が起きたか」を決めるので、out が無いと比較できない
+            cat "$in" > "$out" || return 1
+            return 0
+            ;;
+    esac
+
+    if ! awk -v drop="$drop" '
+        BEGIN {
+            intro = "このリポジトリには、自分の種別に対応するファイルだけが置かれています。"
+        }
+        # 導入文の直後の空行を見るため、いったんぜんぶ読んでから走査する。
+        # README は数十行なので保持して困らない（migrate_legacy_readme と同じ）
+        { line[NR] = $0 }
+        END {
+            for (i = 1; i <= NR; i++) {
+                if (line[i] == intro) {
+                    # 直前に出した行が空行で直後も空行なら、落とすと空行が 2 つ
+                    # 並ぶ。直後の空行も落として「見出し + 空行 + 箇条」に戻す
+                    if (i > 1 && prev == "" && line[i + 1] == "") i++
+                    continue
+                }
+                # index == 1 で頭の一致を見る。length や substr を使わないのは
+                # 多バイト文字で文字数とバイト数のどちらで数えるかが処理系に
+                # よるため（fill_placeholders が正規表現を避けているのと同じ理由）
+                if (index(line[i], drop) == 1) continue
+                print line[i]
+                prev = line[i]
+            }
+        }
+    ' "$in" > "$out"; then
+        return 1
+    fi
+
+    # migrate_legacy_readme と同じ歯止め。入力が空でないのに空を書いた場合、
+    # 呼び出し側は差分を「整理した」と読み、空の README を push することになる
+    if [ -s "$in" ] && [ ! -s "$out" ]; then
+        error "  README.md の執筆ファイル一覧を整理した結果が空になった: $in"
         return 1
     fi
 }
