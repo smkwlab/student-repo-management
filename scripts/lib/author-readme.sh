@@ -430,6 +430,11 @@ migrate_legacy_readme() {
             }
             return out s
         }
+        # 題目の節がこの並びで未記入のまま残っているか
+        function title_section_unwritten(i) {
+            return (line[i] == title_head && line[i + 1] == "" \
+                && line[i + 2] == title_body && line[i + 3] == "")
+        }
         BEGIN {
             note_old_1 = "> **このファイルは自分のリポジトリのトップページに表示されます。**"
             note_old_2 = "> 下の項目を自分の情報に書き換え、該当しない選択肢は削除してください。"
@@ -445,11 +450,6 @@ migrate_legacy_readme() {
         # 節の削除と注記の差し替えは前後の行を見る必要があるので、いったん
         # ぜんぶ読んでから走査する。README は数十行なので保持して困らない
         { line[NR] = $0 }
-        # 題目の節がこの並びで未記入のまま残っているか
-        function title_section_unwritten(i) {
-            return (line[i] == title_head && line[i + 1] == "" \
-                && line[i + 2] == title_body && line[i + 3] == "")
-        }
         END {
             # 項目が寄るかどうかを先に見る。注記の差し替えはそれに従う
             for (i = 1; i <= NR; i++) {
@@ -464,6 +464,8 @@ migrate_legacy_readme() {
                     && line[i + 2] == note_old_3) {
                     print note_new_1
                     print note_new_2
+                    # 3 行とも読み終えた。for の i++ と合わせて次の行へ進む
+                    # （ここを「読み終えた行数」に合わせると 1 行飛ばす）
                     i += 2
                     continue
                 }
@@ -471,6 +473,7 @@ migrate_legacy_readme() {
                 if (line[i] == supervisor) continue
                 # 題目の節は、見出し・空行・未記入の本文・空行がそろったときだけ落とす
                 if (title_section_unwritten(i)) {
+                    # 4 行とも読み終えた。足し方は上の注記と同じ
                     i += 3
                     continue
                 }
