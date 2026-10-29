@@ -16,7 +16,9 @@
 #
 # 呼び出し順序:
 #   author_readme_values <リポジトリ名>   ← AR_* をそろえる
-#   fetch_readme ... / fill_placeholders ... / put_readme ...
+#   fetch_readme ... / migrate_legacy_readme ... / fill_placeholders ... / put_readme ...
+#   migrate_legacy_readme は fill_placeholders より先に通すこと。旧テンプレートの
+#   literal な選択肢をプレースホルダに変えるので、順序が逆だと埋まらない。
 #   fill_placeholders は AR_* を読むので、先に author_readme_values を通すこと
 #   （通っていなければ番兵が非ゼロで返る）。load_roster は author_readme_values
 #   が氏名を引く前に 1 度呼んでおく。
@@ -384,4 +386,110 @@ fill_placeholders() {
             print line
         }
     ' "$in" > "$out"
+}
+
+# 旧テンプレート（sotsuron-template#151 より前）の形を、今の形に寄せる。
+#
+# テンプレートの README から「自動入力できない項目」を外したのは #151 ほかで、
+# それより前に作られたリポジトリの README は旧い形のまま残っている。旧い形は
+# 後追いで埋めても埋まりきらない。
+#   - 種別と所属が「A / B」という literal な選択肢で、学生が該当しない方を消す
+#     前提だった。プレースホルダではないので置換の対象にならず、修士の学生の
+#     main に「卒業論文 / 修士論文」が並んだまま残る
+#   - 指導教員と論文のタイトルは自動入力できないので、今の形には無い
+#   - 冒頭の注記が「下の項目を自分の情報に書き換え」と指示している。寄せた後は
+#     書き換える項目が無いので、今の注記に差し替える。ただし差し替えるのは項目が
+#     寄るときだけである。学生が自分で全部書いたリポジトリでは項目が寄らないので、
+#     そこでは注記にも触らない（今の注記は「作成時に自動で記入される」と書くが、
+#     そのリポジトリでは起きていないことであり、注記だけの commit も残らない）
+#
+# 変換はどれも**旧テンプレートの文字列と完全に一致したときだけ**行う。学生が
+# 一度でも書き換えていれば一致しないので、学生が書いたものには触らない。
+# 「draft を権威とし、学生が書いたところは触らない」という設計のままである。
+#
+# 扱うのは卒業論文・修士論文のテンプレート（sotsuron-template）だけである。残り
+# 5 つのテンプレートも旧い形の README を持つが、後追いで埋める対象から外して
+# あるので（#191 での判断）ここでは扱わない。必要になったら同じ形で足せる。
+#
+# 旧い形でなければ入力をそのまま書き出す。呼び出し側は in と out を比べて、
+# 寄せが起きたかどうかを判定する。
+migrate_legacy_readme() {
+    local in="$1" out="$2"
+
+    if ! awk '
+        # fill_placeholders と同じ実装。正規表現を経由しないのが要点で、理由は
+        # あちらのコメントに書いてある。両方を同じ実装にしておくほうが、
+        # 置換の癖が片方だけ違うより読み手が楽である
+        function replace(s, from, to,    out, pos, flen) {
+            if (to == "") return s
+            out = ""
+            flen = length(from)
+            while ((pos = index(s, from)) > 0) {
+                out = out substr(s, 1, pos - 1) to
+                s = substr(s, pos + flen)
+            }
+            return out s
+        }
+        # 題目の節がこの並びで未記入のまま残っているか
+        function title_section_unwritten(i) {
+            return (line[i] == title_head && line[i + 1] == "" \
+                && line[i + 2] == title_body && line[i + 3] == "")
+        }
+        BEGIN {
+            note_old_1 = "> **このファイルは自分のリポジトリのトップページに表示されます。**"
+            note_old_2 = "> 下の項目を自分の情報に書き換え、該当しない選択肢は削除してください。"
+            note_old_3 = "> `0th-draft` ブランチでの最初の作業です。"
+            note_new_1 = "> **このファイルはリポジトリのトップページに表示されます。**"
+            note_new_2 = "> 下の情報はリポジトリ作成時に自動で記入されるので、書き換える必要はありません。"
+            supervisor = "- **指導教員**: （指導教員名）"
+            title_head = "## 論文のタイトル"
+            title_body = "（論文のタイトルを書いてください。まだ決まっていなければ仮のもので構いません。決まった時点で書き換えます。）"
+            kind_alt   = "卒業論文 / 修士論文"
+            affil_alt  = "九州産業大学理工学部情報科学科 / 九州産業大学大学院情報科学研究科"
+        }
+        # 節の削除と注記の差し替えは前後の行を見る必要があるので、いったん
+        # ぜんぶ読んでから走査する。README は数十行なので保持して困らない
+        { line[NR] = $0 }
+        END {
+            # 項目が寄るかどうかを先に見る。注記の差し替えはそれに従う
+            for (i = 1; i <= NR; i++) {
+                if (index(line[i], kind_alt) > 0 || index(line[i], affil_alt) > 0 \
+                    || line[i] == supervisor || title_section_unwritten(i)) {
+                    fields = 1
+                    break
+                }
+            }
+            for (i = 1; i <= NR; i++) {
+                if (fields && line[i] == note_old_1 && line[i + 1] == note_old_2 \
+                    && line[i + 2] == note_old_3) {
+                    print note_new_1
+                    print note_new_2
+                    # 3 行とも読み終えた。for の i++ と合わせて次の行へ進む
+                    # （ここを「読み終えた行数」に合わせると 1 行飛ばす）
+                    i += 2
+                    continue
+                }
+                # 指導教員の行は、未記入のときだけ落とす
+                if (line[i] == supervisor) continue
+                # 題目の節は、見出し・空行・未記入の本文・空行がそろったときだけ落とす
+                if (title_section_unwritten(i)) {
+                    # 4 行とも読み終えた。足し方は上の注記と同じ
+                    i += 3
+                    continue
+                }
+                s = replace(line[i], kind_alt, "（種別）")
+                print replace(s, affil_alt, "（所属）")
+            }
+        }
+    ' "$in" > "$out"; then
+        return 1
+    fi
+
+    # awk が 0 を返しながら空を書いた場合の歯止め。呼び出し側は in と out の差を
+    # 「寄せが起きた」と読むので、空のまま進むと空の README を draft と main の
+    # 両方へ push することになる。入力が空なら出力も空で正しいので、入力と見比べる
+    if [ -s "$in" ] && [ ! -s "$out" ]; then
+        error "  README.md を寄せた結果が空になった: $in"
+        return 1
+    fi
 }
