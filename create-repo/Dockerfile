@@ -25,8 +25,6 @@ WORKDIR /workspace
 
 # セットアップスクリプトをコピー
 # 文書タイプは docker run -e DOC_TYPE=... で選択する（setup.sh が注入）。
-# 注: 旧 Dockerfile-thesis/-ise が COPY していた protection-config.json は
-# create-repo 内のどのスクリプトからも参照されていないため含めない（Issue #516）
 COPY main.sh ./
 COPY common-lib.sh ./
 COPY templates/ ./templates/
