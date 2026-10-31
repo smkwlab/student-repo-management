@@ -191,8 +191,11 @@ docker build -f create-repo/Dockerfile -t test-creator .
 # Mark branch protection complete
 ./registry-manager/registry-manager protect k21rs001-sotsuron
 
-# Update a repository field (e.g. GitHub username)
-./registry-manager/registry-manager update k21rs001-sotsuron github_username student001
+# Set the repository owners (github_username is a list, so update rejects it)
+./registry-manager/registry-manager edit k21rs001-sotsuron --set-owners student001
+
+# Update a single-value repository field
+./registry-manager/registry-manager update k21rs001-fit26 review_flow true
 ```
 
 ### Debug Authentication Issues
