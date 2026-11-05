@@ -234,35 +234,36 @@ sync_repository() {
     if [ "$values_status" != 0 ]; then
         warn "  著者情報が埋まらないため、テンプレートの形への寄せも行わない: $repo_name"
         migrated=false
-        # 旗を倒すだけでは足りない。この後の整理が $work を土台にするので、
-        # 戻さないと「寄せを捨てた」はずの内容が整理と一緒に push される
-        cp "$desired" "$work" || return 1
     fi
 
-    # 自分の種別に関係ない「執筆するファイル」の箇条を落とす（#616）。作成時に
-    # 埋める fill-author-readme.sh はこれを通すが、後追いは通していなかった。
-    # 作成フロー側も記入そのものを呼んでいなかったため（#621）、#616 はどの
-    # リポジトリにも届いていなかった (#622)。
-    #
-    # 名簿を引く author_readme_values の成否に括らない。整理に要るのは種別だけ
-    # で、種別はリポジトリ名と学籍番号から決まる。括らなければ、著者情報が既に
-    # 埋まっているリポジトリ——後追いで埋めた既存分がこれにあたる——でも整理が
-    # 走る。
-    #
-    # 著者情報が埋まらなかった場合も整理は残す。上で寄せを捨てるのは、寄せが
-    # 種別の literal をプレースホルダに変えるため埋まらないと悪化するからで、
-    # 整理は落とすだけなのでその性質が無い。
     local pruned_work="$WORK_DIR/pruned-readme.md"
     local kind pruned=false
-    kind=$(kind_for "$repo_name" "$(student_id_from_repo_name "$repo_name")")
-    if ! prune_file_list "$work" "$pruned_work" "$kind"; then
-        return 1
-    fi
-    cmp -s "$work" "$pruned_work" || pruned=true
-    mv "$pruned_work" "$work"
+    if [ "$migrated" = true ] || [ "$author_filled" = true ]; then
+        # 自分の種別に関係ない「執筆するファイル」の箇条を落とす（#616）。作成時
+        # に埋める fill-author-readme.sh はこれを通すが、後追いは通していなかった。
+        # 作成フロー側も記入そのものを呼んでいなかったため（#621）、#616 はどの
+        # リポジトリにも届いていなかった (#622)。
+        #
+        # **整理だけでは push しない。** これは push すると決まったあとに相乗り
+        # させるだけである。整理に push させると、執筆中の最新 draft に教員名義の
+        # commit が入る。学生に未 push の commit があれば次の push が
+        # non-fast-forward で弾かれ、pull を挟ませることになる。消えるのは
+        # 「無いファイルを案内する 1 行」で、その対価には釣り合わない。
+        #
+        # 新規リポジトリは作成時に整理される（#621 を直したあと）ので、ここに
+        # 残るのは既存分だけである。ほかの理由で push する日が来れば、そのとき
+        # 一緒に整理される。
+        #
+        # 種別は名簿を引かずに決まる（リポジトリ名と学籍番号だけで決まる）。
+        # 名簿を引く author_readme_values に括らないのは、整理が名簿の有無に
+        # 左右されないようにするためで、push するかどうかの判断とは別である。
+        kind=$(kind_for "$repo_name" "$(student_id_from_repo_name "$repo_name")")
+        if ! prune_file_list "$work" "$pruned_work" "$kind"; then
+            return 1
+        fi
+        cmp -s "$work" "$pruned_work" || pruned=true
+        mv "$pruned_work" "$work"
 
-    if [ "$migrated" = true ] || [ "$author_filled" = true ] \
-        || [ "$pruned" = true ]; then
         if [ "$DRY_RUN" = true ]; then
             if [ "$migrated" = true ]; then
                 log "  [dry-run] $draft の README.md を今のテンプレートの形に寄せる"
