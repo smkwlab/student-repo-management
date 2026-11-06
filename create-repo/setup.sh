@@ -744,12 +744,10 @@ if [ -n "${AUTO_ASSIGN_REVIEWER:-}" ]; then
     DOCKER_ENV_VARS="$DOCKER_ENV_VARS -e AUTO_ASSIGN_REVIEWER=$AUTO_ASSIGN_REVIEWER"
 fi
 if [ -n "${RULE_REVIEW_ACTION:-}" ]; then
-    case "$RULE_REVIEW_ACTION" in
-        off) ;;
-        */*/*|/*|*/|*[!A-Za-z0-9._/-]*) echo "❌ RULE_REVIEW_ACTION は owner/repo の形で指定してください: $RULE_REVIEW_ACTION" >&2; exit 1 ;;
-        */*) ;;
-        *) echo "❌ RULE_REVIEW_ACTION は owner/repo の形で指定してください: $RULE_REVIEW_ACTION" >&2; exit 1 ;;
-    esac
+    # コンテナ側（setup_rule_review_for_organization）と同じ形を許す
+    if [ "$RULE_REVIEW_ACTION" != "off" ] && ! [[ "$RULE_REVIEW_ACTION" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+        echo "❌ RULE_REVIEW_ACTION は owner/repo の形で指定してください: $RULE_REVIEW_ACTION" >&2; exit 1
+    fi
     DOCKER_ENV_VARS="$DOCKER_ENV_VARS -e RULE_REVIEW_ACTION=$RULE_REVIEW_ACTION"
 fi
 if [ -n "${ALDC_URL:-}" ]; then
