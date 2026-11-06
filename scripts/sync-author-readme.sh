@@ -135,18 +135,26 @@ can_push_to_main() {
 
 # draft への push 1 回に載せる文面。
 #
-# テンプレートの形への寄せと著者情報の補完は同じ commit で済むが、どちらを
-# したのかは後から README を見ても分からない。文面で分けておく。
+# 寄せ・補完・整理は同じ commit で済むが、どれをしたのかは後から README を
+# 見ても分からない。文面で分けておく。
+#
+# 起きたことから組み立てる。組み合わせは 3 つの旗で 7 通りあり、literal を
+# 並べると増やすたびに書き足す場所が増える。
 draft_commit_message() {
-    local migrated="$1" filled="$2"
+    local migrated="$1" filled="$2" pruned="$3"
+    local subject=""
 
-    if [ "$migrated" = true ] && [ "$filled" = true ]; then
-        echo "docs: update README.md to the current template and fill in the author information"
-    elif [ "$filled" = true ]; then
-        echo "docs: fill in the author information from the lab roster"
-    else
-        echo "docs: bring README.md in line with the current template"
+    if [ "$migrated" = true ]; then
+        subject="update README.md to the current template"
     fi
+    if [ "$filled" = true ]; then
+        subject="${subject:+${subject}, }fill in the author information from the lab roster"
+    fi
+    if [ "$pruned" = true ]; then
+        subject="${subject:+${subject}, }drop the file list entry for the other thesis kind"
+    fi
+
+    echo "docs: ${subject}"
 }
 
 sync_repository() {
@@ -228,7 +236,34 @@ sync_repository() {
         migrated=false
     fi
 
+    local pruned_work="$WORK_DIR/pruned-readme.md"
+    local kind pruned=false
     if [ "$migrated" = true ] || [ "$author_filled" = true ]; then
+        # 自分の種別に関係ない「執筆するファイル」の箇条を落とす（#616）。作成時
+        # に埋める fill-author-readme.sh はこれを通すが、後追いは通していなかった。
+        # 作成フロー側も記入そのものを呼んでいなかったため（#621）、#616 はどの
+        # リポジトリにも届いていなかった (#622)。
+        #
+        # **整理だけでは push しない。** これは push すると決まったあとに相乗り
+        # させるだけである。整理に push させると、執筆中の最新 draft に教員名義の
+        # commit が入る。学生に未 push の commit があれば次の push が
+        # non-fast-forward で弾かれ、pull を挟ませることになる。消えるのは
+        # 「無いファイルを案内する 1 行」で、その対価には釣り合わない。
+        #
+        # 新規リポジトリは作成時に整理される（#621 を直したあと）ので、ここに
+        # 残るのは既存分だけである。ほかの理由で push する日が来れば、そのとき
+        # 一緒に整理される。
+        #
+        # 種別は名簿を引かずに決まる（リポジトリ名と学籍番号だけで決まる）。
+        # 名簿を引く author_readme_values に括らないのは、整理が名簿の有無に
+        # 左右されないようにするためで、push するかどうかの判断とは別である。
+        kind=$(kind_for "$repo_name" "$(student_id_from_repo_name "$repo_name")")
+        if ! prune_file_list "$work" "$pruned_work" "$kind"; then
+            return 1
+        fi
+        cmp -s "$work" "$pruned_work" || pruned=true
+        mv "$pruned_work" "$work"
+
         if [ "$DRY_RUN" = true ]; then
             if [ "$migrated" = true ]; then
                 log "  [dry-run] $draft の README.md を今のテンプレートの形に寄せる"
@@ -236,12 +271,16 @@ sync_repository() {
             if [ "$author_filled" = true ]; then
                 log "  [dry-run] $draft の著者情報を名簿から補完する"
             fi
+            if [ "$pruned" = true ]; then
+                log "  [dry-run] $draft の執筆ファイル一覧から${kind}以外の箇条を落とす"
+            fi
         else
             # 内容と同じ応答から取った SHA を渡す。学生がこの数秒の間に
             # draft へ push していた場合、PUT は 409 で失敗する。学生の
             # commit を上書きするより、失敗して次回に回すほうが良い
             if ! put_readme "$repo" "$draft" "$work" \
-                "$(draft_commit_message "$migrated" "$author_filled")" "$draft_sha"; then
+                "$(draft_commit_message "$migrated" "$author_filled" "$pruned")" \
+                "$draft_sha"; then
                 return 1
             fi
             if [ "$migrated" = true ]; then
@@ -249,6 +288,9 @@ sync_repository() {
             fi
             if [ "$author_filled" = true ]; then
                 success "  $draft の著者情報を名簿から補完した"
+            fi
+            if [ "$pruned" = true ]; then
+                success "  $draft の執筆ファイル一覧から${kind}以外の箇条を落とした"
             fi
         fi
 
