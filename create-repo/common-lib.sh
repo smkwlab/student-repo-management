@@ -806,6 +806,53 @@ setup_auto_assign_for_organization_members() {
     return 0
 }
 
+# 教員の添削ルールによる下書きレビュー(rule-review)の caller 追加
+#
+# ルールは private のアクションにあり、それを読める org のリポジトリにしか
+# 置けない。テンプレートに入れると、他 org がテンプレートから作ったリポジトリの
+# PR で毎回スキップか失敗が出るので、auto-assign と同じく setup 時に足す。
+#
+# 環境変数:
+#   USER_TYPE          - "organization_member" または "individual_user"
+#   DOC_TYPE           - thesis のときだけ対象
+#   ORGANIZATION       - 作成先の org
+#   RULE_REVIEW_ACTION - アクションの owner/repo。既定は smkwlab のときだけ
+#                        smkwlab/rule-review、それ以外の org では空(追加しない)。
+#                        他 org で自前のルールを持つなら、その owner/repo を渡す。
+#                        off で無効化する。
+#
+# 戻り値:
+#   0 - 成功（追加完了または対象外）
+#   1 - RULE_REVIEW_ACTION が不正、またはテンプレートが無い
+setup_rule_review_for_organization() {
+    if [ "$USER_TYPE" != "organization_member" ] || [ "$DOC_TYPE" != "thesis" ]; then
+        return 0
+    fi
+    local default_action=""
+    [ "$ORGANIZATION" = "smkwlab" ] && default_action="smkwlab/rule-review"
+    local action="${RULE_REVIEW_ACTION:-$default_action}"
+    if [ -z "$action" ] || [ "$action" = "off" ]; then
+        log_info "rule-review: 対象外のためスキップします"
+        return 0
+    fi
+    # sed の置換先と uses: に入るので、owner/repo の形だけを許す
+    if ! [[ "$action" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+        log_error "RULE_REVIEW_ACTION は owner/repo の形で指定してください: $action"
+        return 1
+    fi
+    local script_dir="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+    local template="${script_dir}/templates/rule-review.yml"
+    if [ ! -f "$template" ]; then
+        log_error "テンプレートファイルが見つかりません: $template"
+        return 1
+    fi
+    mkdir -p .github/workflows
+    sed -e "s|__RULE_REVIEW_ACTION__|${action}|g" -e "s|__RULE_REVIEW_OWNER__|${action%%/*}|g" \
+        "$template" > .github/workflows/rule-review.yml
+    log_info "  ✓ .github/workflows/rule-review.yml を追加 (action: ${action})"
+    return 0
+}
+
 # 組織専用ワークフローの削除
 #
 # 組織外ユーザーの場合、Organization Secretsに依存するワークフローを削除します。

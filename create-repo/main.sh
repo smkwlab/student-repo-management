@@ -304,6 +304,9 @@ fi
 # 組織外ユーザーの場合は組織専用ワークフローを削除
 remove_org_specific_workflows
 
+# 教員の添削ルールによる下書きレビュー（ルールを読める org の論文のみ）
+setup_rule_review_for_organization || exit 1
+
 # テンプレートファイルの整理（aldc 実行後に行う必要がある: Issue #433）
 # ise は aldc 非実行のため *-aldc は無いが、テンプレート由来の CLAUDE.md / docs/
 # の削除が必要なのは同じ（Issue #433）
