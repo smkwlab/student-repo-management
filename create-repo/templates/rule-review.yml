@@ -1,16 +1,16 @@
 ---
 # Rule Review: the supervisor's draft review of the changed .tex files.
-# Posts nothing to the PR; the comments go to an Actions artifact, and the
-# supervisor turns them into a pending review with pending_review.py from
-# __RULE_REVIEW_ACTION__. Installed only for repositories that can read that
-# private action; the owner check keeps a copied or transferred repository from
-# failing on every PR.
+# This job only asks the supervisor's private runner to review the PR; it sends
+# the repository name and the PR number, and nothing else. The review runs and
+# is stored where students cannot read it, and the supervisor sends it from
+# there after checking it. Installed only for repositories that can read the
+# private __RULE_REVIEW_ACTION__ action; the owner check keeps a copied or
+# transferred repository from failing on every PR.
 name: Rule Review
 
 on:
   pull_request:
-    # No synchronize: each draft is its own PR, and a run costs about USD 1.5-2.5
-    # per changed .tex file. Re-run the job from the Actions tab to review again.
+    # No synchronize: each draft is its own PR, reviewed once when it opens.
     types: [opened, reopened, ready_for_review]
 
 concurrency:
@@ -25,10 +25,11 @@ jobs:
       github.actor != 'dependabot[bot]' &&
       github.actor != 'renovate[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - uses: __RULE_REVIEW_ACTION__@v1
+      - uses: __RULE_REVIEW_ACTION__@v2
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          client_id: ${{ vars.RULE_REVIEW_APP_CLIENT_ID }}
+          private_key: ${{ secrets.RULE_REVIEW_APP_KEY }}
